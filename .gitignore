@@ -3,3 +3,7 @@ camera.env
 shim.conf
 __pycache__/
 *.pcap
+.venv/
+.pytest_cache/
+.ruff_cache/
+config.json

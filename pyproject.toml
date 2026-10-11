@@ -1,0 +1,21 @@
+[project]
+name = "external-onvif-proxy"
+version = "0.1.0"
+description = "Unprivileged, multi-camera ONVIF header repair proxy"
+requires-python = ">=3.12"
+dependencies = ["aiohttp>=3.12,<4", "multidict>=6,<8", "yarl>=1.18,<2"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
