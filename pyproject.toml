@@ -1,0 +1,25 @@
+[project]
+name = "onvif-shim"
+version = "2.0.0"
+description = "Multi-camera ONVIF WS-Addressing shim for UniFi Protect (runs on the console)"
+requires-python = ">=3.11"
+# Runtime is the console's Python standard library only; these are development tools.
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
