@@ -29,6 +29,7 @@ idea come from Casey Clifton's original design.
 | --- | --- |
 | `onvif_shim.py` | one camera's service (systemd `onvif-shim@<id>`) |
 | `shimctl.py`, `install.sh`, `uninstall.sh` | control CLI (root) and its non-interactive install and uninstall wrappers |
+| `shimlib/protect.py`, `shimlib/cameras.py` | read-only Protect camera list; `cameras`, `add`, `remove`, `setup` |
 | `shimlib/` | config, SOAP repair, HTTP framing, events/AI, shim, firewall, units, control, release builder |
 | `cameras.example.json`, `examples/` | inventories |
 | `tests/` | mocks and fakes (pytest); `tests/kernel/` real netfilter; `tests/systemd/` real systemd |
@@ -217,9 +218,9 @@ This is not production acceptance for 50 real cameras.
 
 | Suite | Command | Result (2026-10-11) |
 | --- | --- | --- |
-| Unit/integration (mocks): config, SOAP repair, events/AI, HTTP framing, 50-camera concurrency, overload, stall isolation, outage/recovery, loop, drain, sanitized logs, lifecycle with fake systemd/iptables | `uv run pytest -q -W error` | 158 passed on Python 3.12 and 3.13 |
+| Unit/integration (mocks): config, SOAP repair, events/AI, HTTP framing, 50-camera concurrency, overload, stall isolation, outage/recovery, loop, drain, sanitized logs, lifecycle with fake systemd/iptables | `uv run pytest -q -W error` | 182 passed on Python 3.12 and 3.13 |
 | Real netfilter (privileged container, iptables-legacy, separate camera netns) | `tests/kernel/run.sh` | 15/15 scenarios ([evidence/kernel-test.txt](evidence/kernel-test.txt)) |
-| Real systemd 257 as PID 1 | `uv run python tests/systemd/systemd_test.py` | 15/15 scenarios ([evidence/systemd-test.txt](evidence/systemd-test.txt)) |
+| Real systemd 257 as PID 1 | `uv run python tests/systemd/systemd_test.py` | 16/16 scenarios ([evidence/systemd-test.txt](evidence/systemd-test.txt)) |
 | Simulated 50 cameras on real kernel | `docker run --rm --privileged -v "$PWD:/src:ro" onvif-shim-kernel-test python3 /src/tests/kernel/scale_test.py` | see Capacity |
 | Lint / format / inventory | `uv run ruff check shimlib tests onvif_shim.py shimctl.py`, `uv run ruff format --check shimlib tests onvif_shim.py shimctl.py`, `python3 -I shimctl.py validate --config cameras.example.json` | clean / valid |
 
@@ -239,7 +240,8 @@ redirects; DynamicUser sandbox; Protect pull via the real unit; idempotent
 re-install; planned stop drains an in-flight poll while new connections go
 direct; crash fail-open/recovery; hang bypass + watchdog restart; safety
 refusal not restarted; reset; crash loop bounded (failed after 6 kills);
-per-camera disable/enable; bypass-all/resume; redirect restored after reboot;
+per-camera disable/enable; `shimctl add` by IP applies at once and `remove` reverts
+it (with Protect's database unavailable); bypass-all/resume; redirect restored after reboot;
 uninstall clean and idempotent (configuration kept).
 
 ## Unverified behavior and remaining risks
@@ -277,3 +279,9 @@ uninstall clean and idempotent (configuration kept).
 12. **Shared loopback**: any local process can connect to 127.0.0.1 listeners
     (bounded separately, no privilege gain).
 13. **Timer is on the NVR**: no off-box supervision.
+14. **Protect's database is internal**: `shimctl cameras/add/setup` read Protect's
+    Postgres (`unifi-protect`, port 5433, as the `postgres` user) in a `READ ONLY`
+    transaction that is rolled back, selecting only name, IP, MAC, type, adoption,
+    ONVIF port and motion status. The schema is undocumented and may change with a
+    Protect update; the commands then report it and `add IP --onvif-port` still works.
+    Nothing in the shim's runtime path depends on it.

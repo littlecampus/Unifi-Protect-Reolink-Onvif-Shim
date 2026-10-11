@@ -22,7 +22,7 @@ hardware; see [Limitations](#limitations).
 ## Contents
 - [Symptoms](#symptoms) · [Confirm you have this problem](#confirm-you-have-this-problem) · [Root cause](#root-cause)
 - [What the shim does](#what-the-shim-does) · [Requirements](#requirements)
-- [Installation](#installation) · [Verify it's working](#verify-its-working)
+- [Installation](#installation) · [Choosing and adding cameras](#choosing-and-adding-cameras) · [Verify it's working](#verify-its-working)
 - [Configuration](#configuration) · [Day-to-day operation](#day-to-day-operation)
 - [Rollback](#rollback) · [After a UniFi OS update](#after-a-unifi-os-update)
 - [Troubleshooting](#troubleshooting) · [How it works](#how-it-works)
@@ -101,22 +101,19 @@ sha256sum /root/onvif-shim-$V.tar.gz            # compare with the value printed
 # Single-camera v1 installed? Remove it first with its own script: sh /data/onvif-shim/install.sh uninstall
 mkdir -p /data/onvif-shim/releases
 tar -xzf /root/onvif-shim-$V.tar.gz -C /data/onvif-shim/releases
-cp /data/onvif-shim/releases/$V/cameras.example.json /data/onvif-shim/cameras.json
-vi /data/onvif-shim/cameras.json                # your cameras; start with one enabled
-python3 -I /data/onvif-shim/releases/$V/shimctl.py validate --preflight
 sh /data/onvif-shim/releases/$V/install.sh --dry-run    # shows every change, changes nothing
-sh /data/onvif-shim/releases/$V/install.sh
-```
-
-From then on use `/data/onvif-shim/current/` (a symlink to the active release):
-
-```bash
+sh /data/onvif-shim/releases/$V/install.sh              # first install: no cameras yet
 alias shimctl='python3 -I /data/onvif-shim/current/shimctl.py'
 ```
 
+`/data/onvif-shim/current/` is a symlink to the active release. Now add cameras
+(next section).
+
 `install.sh` and `uninstall.sh` are non-interactive and idempotent (re-running
 reports `no changes` / `nothing installed`); both accept `--dry-run`. `install.sh`
-reads only `/data/onvif-shim/cameras.json` and never rewrites it. It writes three
+reads `/data/onvif-shim/cameras.json`; on a first install it creates it empty, and it
+never rewrites it afterwards (only `shimctl add/remove/enable/disable` edit it, with
+a timestamped backup in `/data/onvif-shim/backups/`). It writes three
 systemd unit files, starts one `onvif-shim@<id>` instance per enabled camera, enables
 a 30-second reconcile timer, and adds a camera's firewall redirect only after its
 instance is verifiably serving. Everything it creates is derived from `/data`, so
@@ -126,6 +123,45 @@ To remove: `sh /data/onvif-shim/current/uninstall.sh` (see [Rollback](#rollback)
 
 Do not switch cameras to "Detections" recording because events start working; keep
 your recording mode as it is.
+
+## Choosing and adding cameras
+
+`shimctl` reads Protect's own list of third-party cameras (read-only, from Protect's
+local database; camera passwords and stream URLs are never read) and shows which ones
+need the shim: those Protect reports as motion `misconfigured`.
+
+```bash
+shimctl cameras                    # adopted third-party cameras + shim status
+shimctl cameras --needs-shim       # only the ones to fix; add --json for scripts, --all for unadopted
+```
+```
+  #  NAME                   IP              MAC          VENDOR   ONVIF PROTECT MOTION  SHIM             ADVICE
+  1  Parking East           10.48.20.13     EC71DBB619A3 Reolink  8000  misconfigured   -                NEEDS SHIM
+  2  Lobby                  10.48.20.40     EC71DB000040 Reolink  8000  available       -                ok without shim
+```
+
+Add a camera by IP, Protect name or MAC. It is applied **immediately**: the entry
+is written, its shim starts, and Protect's connections are redirected once it serves.
+
+```bash
+shimctl add 10.48.20.13            # or: shimctl add "Parking East"   or: shimctl add EC:71:DB:B6:19:A3
+shimctl add 10.48.20.13 --dry-run  # show the entry and plan only
+shimctl setup                      # interactive: pick from the cameras that need a shim, confirm, apply
+shimctl remove parking_east        # redirect off, stop, delete from the inventory
+```
+
+`add` takes the id (from the Protect name, e.g. `parking_east`), name and ONVIF port
+from Protect and assigns a free local port (`18100` + last IP octet when free). Options:
+`--id`, `--name`, `--onvif-port`, `--listen-port`, `--mode ai_motion` (AI cameras only),
+`--wsa To,Action,MessageID`, `--no-must-understand`, `--stage` (write it disabled; apply
+later with `shimctl enable ID`). It refuses duplicates and anything that fails
+validation or the host preflight, and warns about non-Reolink cameras and cameras
+whose ONVIF port is their web port 80. If Protect's database cannot be read (for
+example after a Protect update changed it), add cameras by IP with `--onvif-port`.
+
+Editing `/data/onvif-shim/cameras.json` by hand also works (format below; see
+[cameras.example.json](cameras.example.json)); then run `shimctl validate` and
+`sh /data/onvif-shim/current/install.sh`.
 
 ## Verify it's working
 
@@ -183,7 +219,7 @@ inventory-wide values. Unknown fields, duplicate keys, duplicate ids, listeners 
 camera addresses are rejected. The file contains no credentials: the shim forwards
 Protect's own authentication.
 
-After editing: `shimctl validate`, `shimctl install --dry-run`, `shimctl install`.
+After editing by hand: `shimctl validate`, then `sh /data/onvif-shim/current/install.sh --dry-run` and without `--dry-run`.
 
 ## Day-to-day operation
 
@@ -193,7 +229,8 @@ After editing: `shimctl validate`, `shimctl install --dry-run`, `shimctl install
 | Live log | `journalctl -u onvif-shim@CAMERA_ID -f -o cat` |
 | Reconcile log / alerts | `journalctl -u onvif-shim-reconcile -n 50 -o cat` |
 | Firewall rules and counters | `iptables -t nat -L ONVIF_SHIM -n -v` |
-| Add a camera | add it with `"enabled": false`, `shimctl validate --preflight`, then `shimctl enable CAMERA_ID` |
+| Cameras and what needs a shim | `shimctl cameras` · `shimctl cameras --needs-shim` |
+| Add / remove a camera | `shimctl add IP\|"Name"\|MAC` (applies now) · `shimctl setup` (interactive) · `shimctl remove CAMERA_ID` |
 | Disable one camera | `shimctl disable CAMERA_ID` |
 | Restart one camera's shim | `systemctl restart onvif-shim@CAMERA_ID` |
 | Clear a failed instance (after fixing the cause) | `shimctl reset CAMERA_ID` |
@@ -302,7 +339,7 @@ model, failure behavior and test evidence: [docs/architecture.md](docs/architect
 
 ```bash
 uv sync
-uv run pytest -q -W error                                   # 158 tests, mocks
+uv run pytest -q -W error                                   # 182 tests, mocks
 uv run ruff check shimlib tests onvif_shim.py shimctl.py
 tests/kernel/run.sh                                         # real netfilter, privileged container
 uv run python tests/systemd/systemd_test.py                 # real systemd as PID 1

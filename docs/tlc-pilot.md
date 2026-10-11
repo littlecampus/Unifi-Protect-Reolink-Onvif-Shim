@@ -21,6 +21,18 @@ pilot below requires explicit approval of the exact changes.
 | journald | `SystemMaxUse=80M` for the whole NVR |
 | Protect failure | every 5 min for Parking East, Parking North, Prog Room Int, Prog Room Ext: 3 deactivations within ~45 s, then `circuit-breaker fired`, `motionDetection available -> misconfigured` |
 
+Protect's own camera list (read-only query of its database, 2026-10-11; no
+credential fields read):
+
+| Group | Count | Protect motion | Notes |
+| --- | --- | --- | --- |
+| Adopted Reolink (`IPC-BO`, MAC `EC71DB…`): Parking East, Parking North, Prog Room - Ext, Prog Room - Int | 4 | `misconfigured` | the four cameras tripping the circuit breaker; ONVIF 8000 |
+| Adopted Dahua door stations (MAC `BC325F…`): Front Door, Ramp, Staff Room, Stair B VTO | 4 | `misconfigured` | ONVIF on port **80** (shared with their web/snapshot port); untested with the shim |
+| Discovered, **not adopted** Reolink | 32 | n/a | no name in Protect; the shim has no effect on cameras Protect does not adopt |
+
+Open question for the rollout: "about 50 cameras recorded by Protect" does not match 8
+adopted third-party cameras on this UNVR; confirm where the other cameras are recorded.
+
 Established earlier by TLC A/B testing: authenticated PullMessages without
 `wsa:To` makes Parking East close the connection; adding `To` yields HTTP 200;
 adding `Action` alone does not.
@@ -38,11 +50,12 @@ edits, recording-mode changes, firmware or Protect upgrades.
    confirm Parking East recording mode (Always) and note the latest recording time.
 2. **Approve the exact change**: one inventory entry (`parking_east`, 10.48.20.13:8000 →
    127.0.0.1:18113), three unit files, one chain + anchor + one DNAT + one jump.
-3. **Install** per the README with the one-camera inventory
-   [`examples/parking-east.json`](../examples/parking-east.json) copied to
-   `/data/onvif-shim/cameras.json` (`validate --preflight`, `install.sh --dry-run`,
-   `install.sh`). No legacy v1 shim is installed on this UNVR (`/data/onvif-shim`
-   did not exist at inventory time).
+3. **Install** per the README (`install.sh --dry-run`, `install.sh`; the first
+   install creates an empty inventory), then `shimctl cameras --needs-shim`,
+   `shimctl add "Parking East" --dry-run` (expect id `parking_east`, 10.48.20.13:8000 →
+   127.0.0.1:18113, as in [`examples/parking-east.json`](../examples/parking-east.json)),
+   then `shimctl add "Parking East"`. No legacy v1 shim is installed on this UNVR
+   (`/data/onvif-shim` did not exist at inventory time).
 4. **Prove traversal**: `shimctl status parking_east` shows `REDIR on`;
    `iptables -t nat -L ONVIF_SHIM -n -v` DNAT packet counter increases;
    `status --json` `requests.redirected` (from `SO_ORIGINAL_DST`) increases;
@@ -71,5 +84,7 @@ edits, recording-mode changes, firmware or Protect upgrades.
 11. Measure `nf_conntrack_count`, `free -m`, the instance's Pss
     (`grep Pss /proc/$(systemctl show -p MainPID --value onvif-shim@parking_east)/smaps_rollup`).
 
-Only after pilot acceptance: enable a small batch (e.g. Parking North, Prog Room
-Int/Ext, which show the same breaker pattern), then scale gradually.
+Only after pilot acceptance: add a small batch (`shimctl add` or `shimctl setup` for
+Parking North, Prog Room - Int/Ext, which show the same breaker pattern), then scale
+gradually. The Dahua VTOs need their own single-camera trial first (different vendor,
+ONVIF on port 80).
