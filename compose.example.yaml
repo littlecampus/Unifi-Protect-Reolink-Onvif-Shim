@@ -1,0 +1,24 @@
+services:
+  onvif-proxy:
+    build: .
+    image: external-onvif-proxy:local
+    restart: unless-stopped
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2
+    stop_grace_period: 120s
+    volumes:
+      - ./config.json:/config/config.json:ro
+    ports:
+      # Replace PROXY_BIND_IP with the VM's camera-facing IP (not 0.0.0.0).
+      - "${PROXY_BIND_IP:?set camera-facing VM IP}:18001-18050:18001-18050/tcp"
+      - "127.0.0.1:19000:19000/tcp"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

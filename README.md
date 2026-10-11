@@ -1,5 +1,15 @@
 # UniFi Protect ONVIF Shim for Reolink cameras
 
+## External Docker mode (this fork)
+
+For a separate unprivileged VM serving multiple cameras, see
+[External proxy deployment and acceptance gates](docs/external-proxy.md).
+It uses header-only passthrough, not AI synthesis or snapshot caching; the example
+contains 50 placeholder mappings. Protect hardware acceptance is unverified.
+Do **not** use the NVR installation instructions below for external mode, and
+preserve continuous recording during testing. The remainder documents the
+original upstream NVR-local mode and its own reported compatibility.
+
 **Get motion events, detection-based motion and correct thumbnails working for Reolink cameras in UniFi Protect.** It runs directly on your UniFi console. No Scrypted, Home Assistant or extra hardware.
 
 If your Reolink camera is adopted in UniFi Protect as a third-party ONVIF camera and it **records fine but never produces motion events**, even though its spotlight or siren clearly shows it's detecting motion, this is probably your problem.
