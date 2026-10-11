@@ -376,9 +376,9 @@ def main():
     )
 
     logs = dx(f"journalctl -u {UNIT} --no-pager -o cat | wc -l").stdout.strip()
-    uninstall = dx(f"sh {BASE}/current/install.sh uninstall")
+    uninstall = dx(f"sh {BASE}/current/uninstall.sh")
     after = dx("iptables-save -t nat | grep -v '^#'").stdout
-    second = dx(f"{CTL} uninstall")
+    second = dx(f"sh {BASE}/current/uninstall.sh")
 
     def rules(text):
         return [line for line in text.splitlines() if line.startswith("-")]

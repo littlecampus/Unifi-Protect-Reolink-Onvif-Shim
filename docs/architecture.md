@@ -18,7 +18,7 @@ Contents: [Architecture](#architecture) · [WS-Addressing repair](#ws-addressing
 | Firewall | DNAT rules appended to `OUTPUT`, `rule.sh` timer | one tagged `ONVIF_SHIM` chain, atomic restore, conntrack anchor, health gate | scoped install/uninstall; verified fail-open |
 | Header repair | regex; skipped when the WS-A namespace appears anywhere | namespace-aware, per element, byte splice, fail-transparent | correctness; WS-Security preserved |
 | Defaults | AI motion on, snapshots on (port 80 + stored password) | header-only; AI opt-in; snapshots removed | preserve genuine motion; non-AI cameras; no credentials |
-| Lifecycle | `install.sh` / `install.sh uninstall` | `install.sh` + `shimctl.py`: dry-run, preflight, status, enable/disable, bypass, release rollback | operability at fleet scale |
+| Lifecycle | `install.sh` / `install.sh uninstall` | `install.sh`, `uninstall.sh` + `shimctl.py`: dry-run, preflight, status, enable/disable, bypass, release rollback | operability at fleet scale |
 
 The v1 header fix and `Action` URIs, the loopback-DNAT approach and the AI-motion
 idea come from Casey Clifton's original design.
@@ -28,7 +28,7 @@ idea come from Casey Clifton's original design.
 | Path | Purpose |
 | --- | --- |
 | `onvif_shim.py` | one camera's service (systemd `onvif-shim@<id>`) |
-| `shimctl.py`, `install.sh` | control CLI (root) and its install/uninstall wrapper |
+| `shimctl.py`, `install.sh`, `uninstall.sh` | control CLI (root) and its non-interactive install and uninstall wrappers |
 | `shimlib/` | config, SOAP repair, HTTP framing, events/AI, shim, firewall, units, control, release builder |
 | `cameras.example.json`, `examples/` | inventories |
 | `tests/` | mocks and fakes (pytest); `tests/kernel/` real netfilter; `tests/systemd/` real systemd |

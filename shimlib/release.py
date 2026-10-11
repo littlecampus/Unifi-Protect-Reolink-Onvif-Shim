@@ -25,6 +25,7 @@ FILES = (
     "onvif_shim.py",
     "shimctl.py",
     "install.sh",
+    "uninstall.sh",
     "LICENSE",
     "README.md",
     "docs/architecture.md",

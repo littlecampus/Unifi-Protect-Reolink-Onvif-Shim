@@ -98,7 +98,7 @@ On the console:
 ```bash
 V=2.0.0-g<commit>
 sha256sum /root/onvif-shim-$V.tar.gz            # compare with the value printed above
-# Single-camera v1 installed? Remove it first: sh /data/onvif-shim/install.sh uninstall
+# Single-camera v1 installed? Remove it first with its own script: sh /data/onvif-shim/install.sh uninstall
 mkdir -p /data/onvif-shim/releases
 tar -xzf /root/onvif-shim-$V.tar.gz -C /data/onvif-shim/releases
 cp /data/onvif-shim/releases/$V/cameras.example.json /data/onvif-shim/cameras.json
@@ -114,10 +114,15 @@ From then on use `/data/onvif-shim/current/` (a symlink to the active release):
 alias shimctl='python3 -I /data/onvif-shim/current/shimctl.py'
 ```
 
-`install` is idempotent: re-running it reports `no changes`. It writes three
+`install.sh` and `uninstall.sh` are non-interactive and idempotent (re-running
+reports `no changes` / `nothing installed`); both accept `--dry-run`. `install.sh`
+reads only `/data/onvif-shim/cameras.json` and never rewrites it. It writes three
 systemd unit files, starts one `onvif-shim@<id>` instance per enabled camera, enables
 a 30-second reconcile timer, and adds a camera's firewall redirect only after its
-instance is verifiably serving.
+instance is verifiably serving. Everything it creates is derived from `/data`, so
+`sh /data/onvif-shim/current/install.sh` reapplies the whole setup at any time.
+
+To remove: `sh /data/onvif-shim/current/uninstall.sh` (see [Rollback](#rollback)).
 
 Do not switch cameras to "Detections" recording because events start working; keep
 your recording mode as it is.
@@ -215,7 +220,7 @@ After editing: `shimctl validate`, `shimctl install --dry-run`, `shimctl install
 | One camera | `shimctl disable CAMERA_ID` | backs up the inventory, removes that camera's redirect **first**, then stops its instance. Protect talks to the camera directly again. `shimctl enable CAMERA_ID` to undo. |
 | Every camera, now | `shimctl bypass-all` | removes all redirects and keeps them off (persists across reboots) until `shimctl resume` |
 | Code version | `shimctl rollback-release [--to VERSION]` | switches back to the previous verified release and restarts instances |
-| Everything | `sh /data/onvif-shim/current/install.sh uninstall` | removes redirects, stops and removes all units, removes the firewall chain; keeps `/data/onvif-shim` |
+| Everything | `sh /data/onvif-shim/current/uninstall.sh` (`--dry-run` to preview) | removes redirects first, then stops and removes all units and the firewall chain; keeps `/data/onvif-shim` (inventory, releases, backups) so `install.sh` can reapply it; `rm -rf /data/onvif-shim` afterwards removes everything |
 | If Python is broken | `iptables -t nat -D OUTPUT -p tcp -m owner --uid-owner $(id -u unifi-protect) -m comment --comment onvif-shim:jump -j ONVIF_SHIM; iptables -t nat -F ONVIF_SHIM; iptables -t nat -X ONVIF_SHIM; systemctl disable --now onvif-shim-reconcile.timer 'onvif-shim@*'` | manual fail-open |
 
 To prove a rollback worked, confirm the camera's rule is gone

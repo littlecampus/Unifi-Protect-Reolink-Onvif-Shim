@@ -148,7 +148,7 @@
       "last_error": null,
       "last_error_at": null,
       "last_status": 200,
-      "last_success_at": 1791751942.241773,
+      "last_success_at": 1791752622.8011236,
       "outage_since": null,
       "outages": 0,
       "recoveries": 0
@@ -189,14 +189,14 @@
   "scenario": "crash_fails_open_then_recovers",
   "passed": true,
   "redirect_removed_after_s": 0.2,
-  "redirect_restored_after_s": 5.3,
+  "redirect_restored_after_s": 5.2,
   "restarts": "1"
 }
 {
   "scenario": "hung_process_bypassed_and_watchdog_restarts",
   "passed": true,
-  "redirect_removed_after_s": 30.5,
-  "redirect_restored_after_s": 5.2,
+  "redirect_removed_after_s": 30.3,
+  "redirect_restored_after_s": 4.9,
   "watchdog_journal_lines": "2"
 }
 {
@@ -242,7 +242,7 @@
     "  iptables-restore: COMMIT"
   ],
   "enable": [
-    "backup /data/onvif-shim/cameras.json -> /data/onvif-shim/backups/cameras.json.20261011T205347Z",
+    "backup /data/onvif-shim/cameras.json -> /data/onvif-shim/backups/cameras.json.20261011T210506Z",
     "set cam=parking_east enabled=true",
     "no changes"
   ]

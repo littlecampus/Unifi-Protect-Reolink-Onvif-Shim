@@ -21,7 +21,7 @@ jobs:
       - run: uv run pytest -q -W error
       - run: uv run ruff check shimlib tests onvif_shim.py shimctl.py
       - run: uv run ruff format --check shimlib tests onvif_shim.py shimctl.py
-      - run: sh -n install.sh
+      - run: sh -n install.sh && sh -n uninstall.sh
       - run: |
           python3 -I shimctl.py validate --config cameras.example.json
           python3 -I shimctl.py validate --config examples/parking-east.json
