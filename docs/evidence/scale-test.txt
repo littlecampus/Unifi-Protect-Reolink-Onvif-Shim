@@ -1,0 +1,56 @@
+{
+  "note": "simulated: 50 mock cameras in one namespace, not production acceptance",
+  "processes_alive": 50,
+  "rss_kib_idle": {
+    "per_instance_max": 25604,
+    "total": 1278956
+  },
+  "rss_kib_after_load": {
+    "per_instance_max": 26004,
+    "total": 1298940
+  },
+  "pss_kib_after_load": {
+    "per_instance_max": 15005,
+    "total": 749182
+  },
+  "rounds_of_50_concurrent_2s_long_polls": [
+    {
+      "wall_s": 5.32,
+      "healthy_ok": 49,
+      "healthy_total": 49,
+      "healthy_max_elapsed_s": 2.03,
+      "stalled_camera": {
+        "status_line": null,
+        "error": null,
+        "elapsed": 5.01
+      }
+    },
+    {
+      "wall_s": 5.27,
+      "healthy_ok": 49,
+      "healthy_total": 49,
+      "healthy_max_elapsed_s": 2.02,
+      "stalled_camera": {
+        "status_line": null,
+        "error": null,
+        "elapsed": 5.01
+      }
+    },
+    {
+      "wall_s": 5.25,
+      "healthy_ok": 49,
+      "healthy_total": 49,
+      "healthy_max_elapsed_s": 2.02,
+      "stalled_camera": {
+        "status_line": null,
+        "error": null,
+        "elapsed": 5.01
+      }
+    }
+  ],
+  "stalled_camera_shim_state": {
+    "event_transport": "degraded",
+    "last_error": "connect_timeout"
+  },
+  "rules_in_chain": 50
+}

@@ -1,0 +1,286 @@
+{
+  "scenario": "install_dry_run_changes_nothing",
+  "passed": true,
+  "output": [
+    "[dry-run]   iptables-restore: COMMIT",
+    "[dry-run] enable onvif-shim@parking_east.service",
+    "[dry-run] start onvif-shim@parking_east.service",
+    "[dry-run] enable --now onvif-shim-reconcile.timer",
+    "[dry-run] firewall: 0 redirect(s) [none]",
+    "[dry-run]   iptables-restore: *nat",
+    "[dry-run]   iptables-restore: :ONVIF_SHIM - [0:0]",
+    "[dry-run]   iptables-restore: -F ONVIF_SHIM",
+    "[dry-run]   iptables-restore: -A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment onvif-shim:ct-anchor -j RETURN",
+    "[dry-run]   iptables-restore: -I OUTPUT 1 -p tcp -m owner --uid-owner 996 -m comment --comment onvif-shim:jump -j ONVIF_SHIM",
+    "[dry-run]   iptables-restore: COMMIT",
+    "[dry-run] start onvif-shim@parking_east.service"
+  ],
+  "release_owner": "root:root 755 /data/onvif-shim/releases/0.1.0-systemdtest/shimctl.py"
+}
+{
+  "scenario": "install_starts_instance_and_redirects",
+  "passed": true,
+  "install_output": [
+    "write /etc/systemd/system/onvif-shim-reconcile.service",
+    "write /etc/systemd/system/onvif-shim-reconcile.timer",
+    "systemctl daemon-reload",
+    "firewall: 0 redirect(s) [none]",
+    "  iptables-restore: *nat",
+    "  iptables-restore: :ONVIF_SHIM - [0:0]",
+    "  iptables-restore: -F ONVIF_SHIM",
+    "  iptables-restore: -A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment onvif-shim:ct-anchor -j RETURN",
+    "  iptables-restore: -I OUTPUT 1 -p tcp -m owner --uid-owner 996 -m comment --comment onvif-shim:jump -j ONVIF_SHIM",
+    "  iptables-restore: COMMIT",
+    "enable onvif-shim@parking_east.service",
+    "start onvif-shim@parking_east.service",
+    "enable --now onvif-shim-reconcile.timer",
+    "no changes"
+  ],
+  "status": {
+    "camera": "parking_east",
+    "detection_verified": false,
+    "enabled": true,
+    "event_transport": "unobserved",
+    "last_motion_notification_at": null,
+    "mode": "passthrough",
+    "process_healthy": true,
+    "process_reason": "ok",
+    "pull_last_failure": null,
+    "pulls_failed": 0,
+    "pulls_ok": 0,
+    "recording": "not_assessed (verify in Protect)",
+    "redirect": true,
+    "repairs": {},
+    "requests": {
+      "accepted": 0,
+      "active": 0,
+      "client_gone": 0,
+      "client_timeout": 0,
+      "completed": 0,
+      "direct": 0,
+      "failed": 0,
+      "host_mismatch": 0,
+      "loop_detected": 0,
+      "misrouted": 0,
+      "redirected": 0,
+      "rejected_busy": 0,
+      "rejected_invalid": 0,
+      "response_too_large": 0,
+      "unknown_origin": 0
+    },
+    "restarts": "0",
+    "unit": "active",
+    "upstream": {
+      "consecutive_connect_failures": 0,
+      "consecutive_failures": 0,
+      "last_error": null,
+      "last_error_at": null,
+      "last_status": null,
+      "last_success_at": null,
+      "outage_since": null,
+      "outages": 0,
+      "recoveries": 0
+    }
+  }
+}
+{
+  "scenario": "instance_is_unprivileged_dynamic_user",
+  "passed": true,
+  "proc_status": [
+    "Uid:\t62452\t62452\t62452\t62452",
+    "CapEff:\t0000000000000000",
+    "CapBnd:\t0000000000000000",
+    "NoNewPrivs:\t1",
+    "Seccomp:\t2"
+  ]
+}
+{
+  "scenario": "protect_pull_via_systemd_instance",
+  "passed": true,
+  "client": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": "HTTP/1.1 200 OK",
+    "bytes": 655,
+    "elapsed": 0.31
+  },
+  "status": {
+    "camera": "parking_east",
+    "detection_verified": false,
+    "enabled": true,
+    "event_transport": "healthy",
+    "last_motion_notification_at": null,
+    "mode": "passthrough",
+    "process_healthy": true,
+    "process_reason": "ok",
+    "pull_last_failure": null,
+    "pulls_failed": 0,
+    "pulls_ok": 1,
+    "recording": "not_assessed (verify in Protect)",
+    "redirect": true,
+    "repairs": {
+      "repaired": 1
+    },
+    "requests": {
+      "accepted": 1,
+      "active": 0,
+      "client_gone": 0,
+      "client_timeout": 0,
+      "completed": 1,
+      "direct": 0,
+      "failed": 0,
+      "host_mismatch": 0,
+      "loop_detected": 0,
+      "misrouted": 0,
+      "redirected": 1,
+      "rejected_busy": 0,
+      "rejected_invalid": 0,
+      "response_too_large": 0,
+      "unknown_origin": 0
+    },
+    "restarts": "0",
+    "unit": "active",
+    "upstream": {
+      "consecutive_connect_failures": 0,
+      "consecutive_failures": 0,
+      "last_error": null,
+      "last_error_at": null,
+      "last_status": 200,
+      "last_success_at": 1791751942.241773,
+      "outage_since": null,
+      "outages": 0,
+      "recoveries": 0
+    }
+  }
+}
+{
+  "scenario": "install_is_idempotent",
+  "passed": true,
+  "output": [
+    "no changes"
+  ]
+}
+{
+  "scenario": "planned_stop_drains_inflight_and_bypasses_new",
+  "passed": true,
+  "redirect_removed_after_s": 0.2,
+  "inflight": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": "HTTP/1.1 200 OK",
+    "bytes": 655,
+    "elapsed": 3.01
+  },
+  "new_during_stop": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": null,
+    "bytes": 0,
+    "elapsed": 0.0
+  }
+}
+{
+  "scenario": "crash_fails_open_then_recovers",
+  "passed": true,
+  "redirect_removed_after_s": 0.2,
+  "redirect_restored_after_s": 5.3,
+  "restarts": "1"
+}
+{
+  "scenario": "hung_process_bypassed_and_watchdog_restarts",
+  "passed": true,
+  "redirect_removed_after_s": 30.5,
+  "redirect_restored_after_s": 5.2,
+  "watchdog_journal_lines": "2"
+}
+{
+  "scenario": "safety_refusal_is_not_restarted",
+  "passed": true,
+  "result": "exit-code",
+  "squatter": "active",
+  "reconcile": [
+    "ALERT unit_failed cam=parking_east (restart limit or safety refusal; redirect is off; inspect journal then run `reset`)",
+    "no changes"
+  ],
+  "journal": [
+    "error cam=parking_east cannot listen: OSError errno=98",
+    "onvif-shim@parking_east.service: Main process exited, code=exited, status=78/CONFIG",
+    "onvif-shim@parking_east.service: Failed with result 'exit-code'.",
+    "Failed to start onvif-shim@parking_east.service - ONVIF NVR shim for camera parking_east."
+  ]
+}
+{
+  "scenario": "reset_recovers_after_fix",
+  "passed": true,
+  "output": [
+    "reset-failed + start onvif-shim@parking_east.service",
+    "no changes"
+  ]
+}
+{
+  "scenario": "crash_loop_is_bounded",
+  "passed": true,
+  "kills_until_failed": 5,
+  "restarts": "5",
+  "result": "signal"
+}
+{
+  "scenario": "disable_then_enable_one_camera",
+  "passed": true,
+  "disable": [
+    "firewall: 0 redirect(s) [none]",
+    "  iptables-restore: *nat",
+    "  iptables-restore: -D OUTPUT -p tcp -m owner --uid-owner 996 -m comment --comment onvif-shim:jump -j ONVIF_SHIM",
+    "  iptables-restore: -F ONVIF_SHIM",
+    "  iptables-restore: -X ONVIF_SHIM",
+    "  iptables-restore: COMMIT"
+  ],
+  "enable": [
+    "backup /data/onvif-shim/cameras.json -> /data/onvif-shim/backups/cameras.json.20261011T205347Z",
+    "set cam=parking_east enabled=true",
+    "no changes"
+  ]
+}
+{
+  "scenario": "bypass_all_and_resume",
+  "passed": true,
+  "bypass": [
+    "  iptables-restore: -A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment onvif-shim:ct-anchor -j RETURN",
+    "  iptables-restore: COMMIT",
+    "ALERT bypass_all_active (run `resume` to re-enable redirects)"
+  ],
+  "resume": [
+    "  iptables-restore: -A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment onvif-shim:ct-anchor -j RETURN",
+    "  iptables-restore: -A ONVIF_SHIM -d 10.99.0.13/32 -p tcp -m tcp --dport 8000 -m comment --comment onvif-shim:cam:parking_east -j DNAT --to-destination 127.0.0.1:18113",
+    "  iptables-restore: COMMIT"
+  ]
+}
+{
+  "scenario": "redirect_restored_after_reboot",
+  "passed": true,
+  "seconds_after_boot": 0.0
+}
+{
+  "scenario": "uninstall_clean_and_idempotent",
+  "passed": true,
+  "output": [
+    "remove /etc/systemd/system/onvif-shim@.service",
+    "remove /etc/systemd/system/onvif-shim-reconcile.service",
+    "remove /etc/systemd/system/onvif-shim-reconcile.timer",
+    "systemctl daemon-reload",
+    "iptables-restore: *nat",
+    "iptables-restore: -D OUTPUT -p tcp -m owner --uid-owner 996 -m comment --comment onvif-shim:jump -j ONVIF_SHIM",
+    "iptables-restore: -F ONVIF_SHIM",
+    "iptables-restore: -X ONVIF_SHIM",
+    "iptables-restore: COMMIT",
+    "kept /data/onvif-shim (configuration and releases)"
+  ],
+  "journal_lines_whole_test": "219"
+}
+{"total": 15, "failed": []}

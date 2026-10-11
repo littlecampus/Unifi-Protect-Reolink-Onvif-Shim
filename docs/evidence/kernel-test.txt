@@ -1,0 +1,316 @@
+iptables: iptables v1.8.11 (legacy) | kernel: 7.0.14-orbstack-00380-ga7e0a2dc9535
+{
+  "scenario": "shim_runs_unprivileged",
+  "passed": true,
+  "capabilities": {
+    "Uid": "61000",
+    "CapPrm": "0000000000000000",
+    "CapEff": "0000000000000000",
+    "CapBnd": "0000000000000000"
+  }
+}
+{
+  "scenario": "rules_installed",
+  "passed": true,
+  "restore_input": [
+    "*nat",
+    ":ONVIF_SHIM - [0:0]",
+    "-F ONVIF_SHIM",
+    "-A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment onvif-shim:ct-anchor -j RETURN",
+    "-A ONVIF_SHIM -d 10.99.0.13/32 -p tcp -m tcp --dport 8000 -m comment --comment onvif-shim:cam:parking_east -j DNAT --to-destination 127.0.0.1:18113",
+    "-I OUTPUT 1 -p tcp -m owner --uid-owner 996 -m comment --comment onvif-shim:jump -j ONVIF_SHIM",
+    "COMMIT"
+  ],
+  "nat": [
+    "-P PREROUTING ACCEPT",
+    "-P INPUT ACCEPT",
+    "-P OUTPUT ACCEPT",
+    "-P POSTROUTING ACCEPT",
+    "-N ONVIF_SHIM",
+    "-A OUTPUT -p tcp -m owner --uid-owner 996 -m comment --comment \"onvif-shim:jump\" -j ONVIF_SHIM",
+    "-A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment \"onvif-shim:ct-anchor\" -j RETURN",
+    "-A ONVIF_SHIM -d 10.99.0.13/32 -p tcp -m tcp --dport 8000 -m comment --comment \"onvif-shim:cam:parking_east\" -j DNAT --to-destination 127.0.0.1:18113"
+  ]
+}
+{
+  "scenario": "protect_pull_redirected_and_repaired",
+  "passed": true,
+  "client": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": "HTTP/1.1 200 OK",
+    "bytes": 655,
+    "elapsed": 0.51
+  },
+  "camera": [
+    {
+      "port": 8000,
+      "peer": "10.99.0.1",
+      "has_to": true,
+      "had_request": true
+    }
+  ],
+  "shim_before": {
+    "accepted": 0,
+    "redirected": 0,
+    "direct": 0,
+    "loop_detected": 0,
+    "completed": 0,
+    "repaired": 0
+  },
+  "shim_after": {
+    "accepted": 1,
+    "redirected": 1,
+    "direct": 0,
+    "loop_detected": 0,
+    "completed": 1,
+    "repaired": 1
+  }
+}
+{
+  "scenario": "conntrack_reply_tuple_and_unmarked_upstream",
+  "passed": true,
+  "conntrack_entries": [
+    "tcp      6 431999 ESTABLISHED src=10.99.0.1 dst=10.99.0.13 sport=33440 dport=8000 src=127.0.0.1 dst=10.99.0.1 sport=18113 dport=33440 [ASSURED] mark=0 use=1",
+    "tcp      6 118 TIME_WAIT src=10.99.0.1 dst=10.99.0.13 sport=33438 dport=8000 src=10.99.0.13 dst=10.99.0.1 sport=8000 dport=33438 [ASSURED] mark=0 use=1",
+    "tcp      6 431999 ESTABLISHED src=10.99.0.1 dst=10.99.0.13 sport=33456 dport=8000 src=10.99.0.13 dst=10.99.0.1 sport=8000 dport=33456 [ASSURED] mark=0 use=1",
+    "tcp      6 118 TIME_WAIT src=10.99.0.1 dst=10.99.0.13 sport=33436 dport=8000 src=127.0.0.1 dst=10.99.0.1 sport=18113 dport=33436 [ASSURED] mark=0 use=1"
+  ],
+  "long_poll": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": "HTTP/1.1 200 OK",
+    "bytes": 655,
+    "elapsed": 2.01
+  }
+}
+{
+  "scenario": "uid_0_not_redirected",
+  "passed": true,
+  "client": {
+    "uid": 0,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": null,
+    "bytes": 0,
+    "elapsed": 0.0
+  },
+  "camera": [
+    {
+      "port": 8000,
+      "peer": "10.99.0.1",
+      "has_to": false,
+      "had_request": true
+    }
+  ]
+}
+{
+  "scenario": "uid_982_not_redirected",
+  "passed": true,
+  "client": {
+    "uid": 982,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": null,
+    "bytes": 0,
+    "elapsed": 0.0
+  },
+  "camera": [
+    {
+      "port": 8000,
+      "peer": "10.99.0.1",
+      "has_to": false,
+      "had_request": true
+    }
+  ]
+}
+{
+  "scenario": "port_554_not_intercepted",
+  "passed": true,
+  "client": {
+    "uid": 996,
+    "target": "10.99.0.13:554",
+    "kind": "raw",
+    "peer_seen_by_client": "10.99.0.13:554",
+    "status_line": "RTSP/1.0 200 OK",
+    "bytes": 38,
+    "elapsed": 0.0
+  },
+  "camera": [
+    {
+      "port": 554,
+      "peer": "10.99.0.1"
+    }
+  ]
+}
+{
+  "scenario": "port_80_not_intercepted",
+  "passed": true,
+  "client": {
+    "uid": 996,
+    "target": "10.99.0.13:80",
+    "kind": "raw",
+    "peer_seen_by_client": "10.99.0.13:80",
+    "status_line": "HTTP/1.1 200 OK",
+    "bytes": 42,
+    "elapsed": 0.0
+  },
+  "camera": [
+    {
+      "port": 80,
+      "peer": "10.99.0.1"
+    }
+  ]
+}
+{
+  "scenario": "direct_connection_classified",
+  "passed": true,
+  "before": {
+    "accepted": 2,
+    "redirected": 2,
+    "direct": 0,
+    "loop_detected": 0,
+    "completed": 2,
+    "repaired": 2
+  },
+  "after": {
+    "accepted": 3,
+    "redirected": 2,
+    "direct": 1,
+    "loop_detected": 0,
+    "completed": 2,
+    "repaired": 2
+  }
+}
+{
+  "scenario": "rule_removal_keeps_established_and_bypasses_new",
+  "passed": true,
+  "established": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": "HTTP/1.1 200 OK",
+    "bytes": 655,
+    "elapsed": 3.01
+  },
+  "new_connection": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": null,
+    "bytes": 0,
+    "elapsed": 0.0
+  },
+  "camera": [
+    {
+      "port": 8000,
+      "peer": "10.99.0.1",
+      "has_to": false,
+      "had_request": true
+    }
+  ],
+  "nat": [
+    "-P PREROUTING ACCEPT",
+    "-P INPUT ACCEPT",
+    "-P OUTPUT ACCEPT",
+    "-P POSTROUTING ACCEPT",
+    "-N ONVIF_SHIM",
+    "-A OUTPUT -p tcp -m owner --uid-owner 996 -m comment --comment \"onvif-shim:jump\" -j ONVIF_SHIM",
+    "-A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment \"onvif-shim:ct-anchor\" -j RETURN"
+  ]
+}
+{
+  "scenario": "crash_then_fail_open",
+  "passed": true,
+  "inflight_when_killed": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": null,
+    "bytes": 0,
+    "elapsed": 0.67
+  },
+  "new_while_rule_present": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "error": "ConnectionRefusedError",
+    "elapsed": 0.0
+  },
+  "after_rule_removed": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": null,
+    "bytes": 0,
+    "elapsed": 0.0
+  },
+  "camera": [
+    {
+      "port": 8000,
+      "peer": "10.99.0.1",
+      "has_to": false,
+      "had_request": true
+    }
+  ]
+}
+{
+  "scenario": "loop_detected_and_fails_closed_to_exit_78",
+  "passed": true,
+  "exit_code": 78,
+  "client": {
+    "uid": 61000,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "status_line": null,
+    "bytes": 0,
+    "elapsed": 0.0
+  },
+  "camera": [],
+  "shim_log": [
+    "info cam=parking_east event=transport_state state=unobserved",
+    "error cam=parking_east event=loop_detected",
+    "warn cam=parking_east event=upstream_failed reason=closed_without_response pull=1",
+    "error cam=parking_east unsafe=loop_detected; interception must stay off"
+  ]
+}
+{
+  "scenario": "negative_control_without_anchor_inflight_is_stranded",
+  "passed": true,
+  "established": {
+    "uid": 996,
+    "target": "10.99.0.13:8000",
+    "kind": "pull",
+    "peer_seen_by_client": "10.99.0.13:8000",
+    "error": "TimeoutError",
+    "elapsed": 15.02
+  },
+  "note": "expected failure mode that the anchor rule exists to prevent"
+}
+{
+  "scenario": "uninstall_restores_pristine_nat",
+  "passed": true,
+  "nat": [
+    "*nat",
+    "COMMIT"
+  ]
+}
+{
+  "scenario": "conntrack_activation_observed",
+  "passed": true,
+  "note": "informational: count before first DNAT rule vs after traffic",
+  "before": 0,
+  "after": 19
+}
+{"total": 15, "failed": []}
