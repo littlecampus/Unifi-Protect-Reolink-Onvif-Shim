@@ -21,7 +21,8 @@ One service creates an independent listener and HTTP connection pool for each
 mapping. The listener, never the Host header, selects a fixed upstream literal IP
 and port. No hostname DNS rebinding, redirects, environment HTTP proxies or
 cookie storage. No privileges, SO_MARK, iptables, Docker socket, AI synthesis,
-thumbnail fetching/caching, camera identity substitution or ONVIF discovery server.
+thumbnail fetching/caching or ONVIF discovery server. Camera identity is preserved
+by default; explicit per-camera virtual identity is available below.
 Manual ONVIF endpoint entry is required; UDP WS-Discovery is not proxied.
 
 Python >=3.12 and aiohttp provide maintained HTTP framing, duplicate headers,
@@ -43,8 +44,9 @@ MessageID/ReplyTo is invented; existing ones pass through.
 Returned GetServices service XAddr, GetCapabilities recognized service XAddr, and
 ONVIF/WS-Notification SubscriptionReference/Address values are rewritten to the
 mapping's public origin. Paths, encoded query and subscription IDs remain intact.
-Direct RTSP and snapshot Uri values, identities, event data and reference parameters
-are not rewritten. Returned control URLs must match the configured upstream origin;
+Direct RTSP and snapshot Uri values, event data and reference parameters are not
+rewritten. Identity metadata is unchanged unless `virtual_identity` is configured.
+Returned control URLs must match the configured upstream origin;
 foreign hosts, other ports, credentials, fragments and unsupported schemes fail
 closed with 502. A camera advertising a different ONVIF service port needs an
 evidenced design extension, not a relaxed arbitrary URL router.
@@ -54,6 +56,87 @@ after proxy restart. This does **not** recreate an expired camera subscription.
 Renew/Unsubscribe and new CreatePullPointSubscription requests are forwarded.
 Clients must handle camera expiry/reboot and re-subscribe. No automatic retries of
 SOAP POST (which could duplicate subscription creation or other mutations).
+
+## Optional virtual camera identity (experimental)
+
+An observed Protect canary adopted the proxy public IP using the physical camera's
+MAC, reused an existing camera record, then changed that record back to the physical
+IP within about 12 seconds while multicast discovery repeatedly found the physical
+camera. This is consistent with identity-based rediscovery overriding the endpoint,
+not an HTTP forwarding failure. These are reported live observations, not acceptance
+results from this local test suite. Protect's proprietary matching precedence
+(MAC, serial, discovery UUID or other keys) has **not** been verified in source.
+
+To present a distinct logical camera, add this optional field to one mapping:
+
+```json
+{
+  "id": "parking_east",
+  "listen_host": "0.0.0.0",
+  "listen_port": 18013,
+  "upstream": "http://192.0.2.13:8000",
+  "public": "http://192.0.2.8:80",
+  "virtual_identity": {
+    "mac": "02:00:00:00:00:13",
+    "serial": "proxy-parking-east"
+  }
+}
+```
+
+The example uses documentation IPs, not deployable production configuration.
+Omit `virtual_identity` to retain existing behavior; explicit null is invalid.
+Both fields are required; unknown keys fail validation. MAC must be six colon-
+separated hex octets and locally administered unicast (first octet low bits `10`).
+Serial must be 1..64 ASCII letters, digits, hyphens or underscores. Keep these values
+stable across restarts/redeploys, distinct from the physical camera and other proxy
+identities. Config validation rejects case-insensitive duplicate virtual MACs or
+serials within this process; uniqueness against real cameras/other deployments
+requires operator inventory. No startup-generated or id-derived identity exists.
+
+Only these namespace-qualified, direct SOAP Body response paths are adapted:
+
+| Device response leaf | Replacement |
+| --- | --- |
+| `GetDeviceInformationResponse/SerialNumber` (device namespace) | configured serial |
+| `GetNetworkInterfacesResponse/NetworkInterfaces/Info/HwAddress` (device response/interface, schema Info/leaf) | configured MAC |
+| `GetNetworkInterfacesResponse/NetworkInterfaces/IPv4/Config/{Manual,FromDHCP}/Address` (schema address subtree) | literal IPv4 host of `public`, never container `listen_host` or upstream |
+
+All returned interfaces' matching leaves are adapted. This is identity presentation,
+not a virtual network stack: interface tokens, prefix lengths, DHCP flags and MTU
+are retained. IPv4 LinkLocal, IPv6, gateway/DNS, scopes, endpoint-reference UUID,
+manufacturer/model/firmware/HardwareId and vendor extensions are **not** adapted.
+Virtual mode currently requires an IPv4 public origin. Multi-interface, IPv6 and
+clients selecting LinkLocal or discovery UUID need evidence-driven extension and
+are not accepted deployment targets. Missing metadata is not synthesized; empty
+self-closing or nested selected leaves fail closed. Existing signature/body-integrity
+guards apply to identity edits exactly as to control URL edits.
+
+**This does not suppress physical WS-Discovery.** The proxy is not on the direct
+camera-to-recorder UDP path. Keeping the same identity cannot reliably stop physical
+rediscovery through this HTTP proxy alone. An alternative retaining existing history
+would require separately authorized discovery isolation in the network or disabling
+camera discovery if supported, plus endpoint persistence validation; neither is
+implemented or authorized here, and neither alone fixes RTSP host substitution.
+
+Virtual identity is intended for a **separately approved new logical camera record**,
+not migration of the existing record/history. Do not delete the existing record.
+Adoption uses the real camera's credentials via secure user entry; identity editing
+is not authentication. Before a new adoption, gate against simultaneous direct
+video readers: these cameras may fail under additional consumers. No stream relay
+is implemented. Protect has also been observed substituting the proxy IP into RTSP
+URLs despite the proxy preserving direct GetStreamUri output. A relay listening on
+the advertised proxy address/RTSP port, consuming an approved shared feed, is a
+separate prerequisite for safe end-to-end playback; changing XML alone cannot fix it.
+
+Next acceptance steps, only after separate approval: provide/verify a shared-feed
+RTSP relay without extra camera readers; secure adoption of one virtual identity;
+observe across repeated discovery cycles that its MAC/serial/public IPv4 remain
+stable while the original record remains direct; verify real subscriptions, sustained
+PullMessages and physical motion start/stop in Protect; check existing recording and
+historical playback before/during/after restart. HTTP 200 and `repaired=0` do not
+prove motion: `repaired` counts request header repairs only, not response identity
+edits, and fully populated headers legitimately need no repair. No live stability,
+video, event or recording acceptance is claimed by this patch.
 
 ## Config and safe startup (only after separate deployment authorization)
 
@@ -174,7 +257,8 @@ behavior is unknown until measured.
 - [ ] Packet-confirm actual Protect To/Action behavior with sanitized evidence; current
       TLC header-missing diagnosis is not packet-confirmed.
 - [ ] One non-destructive canary: verify same VM IP plus distinct ports accepted and
-      camera identity/serial/MAC unaffected. If not, validate multi-IP alternative.
+      camera identity/serial/MAC unaffected by default, or approved virtual identity
+      stable across rediscovery cycles. If not, validate multi-IP alternative.
 - [ ] Prove supported existing-camera endpoint edit or explicitly approved parallel
       adoption, and prove restoration without deleting production camera/history.
 - [ ] GetServices/GetCapabilities and CreatePullPointSubscription point at correct
@@ -191,7 +275,7 @@ behavior is unknown until measured.
 ## Development verification
 
 `uv sync --frozen --python 3.12`
-`uv run pytest -q`
+`uv run pytest -q -W error`
 `uv run ruff check external_proxy.py container_health.py tests`
 `uv run ruff format --check external_proxy.py container_health.py tests`
 `uv run python external_proxy.py --config config.example.json --validate`

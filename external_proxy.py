@@ -212,12 +212,40 @@ def origin(value: str) -> str:
 
 
 @dataclass(frozen=True)
+class VirtualIdentity:
+    """Explicit, persistent proxy identity; never generate a new one at startup."""
+
+    mac: str
+    serial: str
+
+    def __post_init__(self):
+        if not isinstance(self.mac, str) or not re.fullmatch(
+            r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}", self.mac
+        ):
+            raise ValueError("Virtual MAC must be six colon-separated octets")
+        if int(self.mac[:2], 16) & 3 != 2:
+            raise ValueError("Virtual MAC must be locally administered unicast")
+        if not isinstance(self.serial, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{1,64}", self.serial
+        ):
+            raise ValueError("Invalid virtual serial")
+
+
+@dataclass(frozen=True)
 class Camera:
     id: str
     listen_host: str
     listen_port: int
     upstream: str
     public: str
+    virtual_identity: VirtualIdentity | None = None
+
+    def __post_init__(self):
+        if self.virtual_identity is not None:
+            if not isinstance(self.virtual_identity, VirtualIdentity):
+                raise ValueError("Invalid virtual identity")
+            if ipaddress.ip_address(urlsplit(self.public).hostname or "").version != 4:
+                raise ValueError("Virtual identity currently requires an IPv4 public origin")
 
     def to_upstream(self, value: str) -> str:
         if origin(value) not in {self.upstream, self.public}:
@@ -256,8 +284,14 @@ class Config:
         for item in raw.pop("cameras"):
             if not isinstance(item, dict):
                 raise ValueError("Camera must be an object")
-            if set(item) != {"id", "listen_host", "listen_port", "upstream", "public"}:
+            required = {"id", "listen_host", "listen_port", "upstream", "public"}
+            if not required <= set(item) or set(item) - required - {"virtual_identity"}:
                 raise ValueError("Camera fields missing or unknown")
+            if "virtual_identity" in item:
+                identity = item["virtual_identity"]
+                if not isinstance(identity, dict) or set(identity) != {"mac", "serial"}:
+                    raise ValueError("Virtual identity requires mac and serial only")
+                item = dict(item, virtual_identity=VirtualIdentity(**identity))
             cam = Camera(**item)
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cam.id):
                 raise ValueError("Invalid camera id")
@@ -279,6 +313,11 @@ class Config:
             cameras
         ):
             raise ValueError("Duplicate camera endpoint")
+        identities = [c.virtual_identity for c in cameras if c.virtual_identity is not None]
+        if len({i.mac.lower() for i in identities}) != len(identities) or len(
+            {i.serial.lower() for i in identities}
+        ) != len(identities):
+            raise ValueError("Duplicate virtual identity MAC or serial")
         config = cls(tuple(cameras), **raw)
         if {c.upstream for c in cameras} & {c.public for c in cameras}:
             raise ValueError("Upstreams cannot be public proxy endpoints")
@@ -364,6 +403,33 @@ def repair_request(data: bytes, camera: Camera, path: str) -> bytes:
     return apply_edits(data, nodes, edits)
 
 
+def virtual_identity_value(node: Node, ancestors: list[tuple[str, str]], camera: Camera):
+    """Whitelist identity leaves in direct device responses, never events/faults/headers."""
+    identity = camera.virtual_identity
+    if identity is None:
+        return None
+    soap_ns = ancestors[-1][0] if ancestors else ""
+    tail = [(soap_ns, "Body"), (soap_ns, "Envelope")]
+    if soap_ns not in SOAP:
+        return None
+    if node.name == (DEVICE, "SerialNumber") and ancestors == [
+        (DEVICE, "GetDeviceInformationResponse"),
+        *tail,
+    ]:
+        return identity.serial
+    network_tail = [(DEVICE, "NetworkInterfaces"), (DEVICE, "GetNetworkInterfacesResponse"), *tail]
+    if node.name == (SCHEMA, "HwAddress") and ancestors == [(SCHEMA, "Info"), *network_tail]:
+        return identity.mac
+    if (
+        node.name == (SCHEMA, "Address")
+        and len(ancestors) == 7
+        and ancestors[0] in {(SCHEMA, "Manual"), (SCHEMA, "FromDHCP")}
+        and ancestors[1:] == [(SCHEMA, "Config"), (SCHEMA, "IPv4"), *network_tail]
+    ):
+        return urlsplit(camera.public).hostname
+    return None
+
+
 def rewrite_response(data: bytes, camera: Camera) -> bytes:
     _, nodes = parse_xml(data)
     edits = []
@@ -414,6 +480,11 @@ def rewrite_response(data: bytes, camera: Camera) -> bytes:
             except ValueError as exc:
                 raise UnsafeXML("Invalid control address") from exc
             edits.append(replace_text(node, value))
+        identity_value = virtual_identity_value(node, ancestors, camera)
+        if identity_value is not None and (
+            node.empty or node.children or node.text != identity_value
+        ):
+            edits.append(replace_text(node, identity_value))
     return apply_edits(data, nodes, edits)
 
 

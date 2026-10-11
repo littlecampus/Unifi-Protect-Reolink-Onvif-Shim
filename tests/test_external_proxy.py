@@ -47,7 +47,7 @@ def free_ports(count):
 
 
 @asynccontextmanager
-async def harness(count=1, callback=None, **limits):
+async def harness(count=1, callback=None, identities=None, **limits):
     runners = []
     seen = [[] for _ in range(count)]
     proxy = None
@@ -74,7 +74,14 @@ async def harness(count=1, callback=None, **limits):
             upstreams.append(f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}")
         ports = free_ports(count + 1)
         cameras = tuple(
-            Camera(f"cam_{i}", "127.0.0.1", ports[i], upstreams[i], f"http://127.0.0.1:{ports[i]}")
+            Camera(
+                f"cam_{i}",
+                "127.0.0.1",
+                ports[i],
+                upstreams[i],
+                f"http://127.0.0.1:{ports[i]}",
+                **({"virtual_identity": identities[i]} if identities and i in identities else {}),
+            )
             for i in range(count)
         )
         config = Config(cameras, health_port=ports[-1], **limits)
