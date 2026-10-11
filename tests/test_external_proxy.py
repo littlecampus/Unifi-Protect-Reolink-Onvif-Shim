@@ -436,7 +436,8 @@ async def test_bounded_concurrency_and_reconnect():
 def test_validated_50_camera_example_and_invalid_config(tmp_path):
     config = Config.load("config.example.json")
     assert len(config.cameras) == 50
-    raw = json.loads(open("config.example.json").read())
+    with open("config.example.json") as source:
+        raw = json.load(source)
     for change in (
         lambda r: r["cameras"][0].update(upstream="http://example.org:8000"),
         lambda r: r["cameras"][1].update(id=r["cameras"][0]["id"]),

@@ -267,3 +267,17 @@ async def test_timed_out_xml_work_does_not_grow_executor_queue():
         while proxy.xml_slots._value != 4 and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
         assert proxy.xml_slots._value == 4
+
+
+@pytest.mark.parametrize("header", ["Signature", "Signature-Input"])
+async def test_http_signed_response_rejected_even_when_body_unchanged(header):
+    async def camera(index, request, body):
+        return web.Response(
+            body=envelope("<e:PullMessagesResponse/>"),
+            headers={header: "opaque-signature"},
+            content_type="application/soap+xml",
+        )
+
+    async with harness(callback=camera) as (_, cams, _, client):
+        async with client.post(cams[0].public + "/sub", data=envelope()) as r:
+            assert r.status == 502

@@ -570,6 +570,8 @@ class Proxy:
                     headers=headers,
                     allow_redirects=False,
                 ) as response:
+                    if any(k in response.headers for k in HTTP_SIGNATURE):
+                        raise UnsafeXML("HTTP signed responses unsupported")
                     if response.headers.get("Content-Encoding", "identity").lower() != "identity":
                         raise UnsafeXML("Encoded upstream response unsupported")
                     chunks = []
@@ -592,8 +594,6 @@ class Proxy:
                         raise UnsafeXML("Response integrity authentication cannot be changed")
                     outgoing = forward_headers(response.headers, changed=output != raw_output)
                     if "Location" in outgoing:
-                        if any(k in response.headers for k in HTTP_SIGNATURE):
-                            raise UnsafeXML("Signed redirect cannot be changed")
                         outgoing["Location"] = camera.to_public(outgoing["Location"])
                     status = response.status
                     state.responses += 1
@@ -614,7 +614,7 @@ class Proxy:
                 status, error = 502, "upstream_transport"
             except web.HTTPException as exc:
                 status, error = exc.status, "request_rejected"
-                return exc
+                raise
             finally:
                 if error:
                     state.failures += 1

@@ -120,7 +120,7 @@ challenges and WS-Security UsernameToken digests pass through; no credentials ar
 stored or independently authenticated. HTTP body-integrity digests/auth-int and
 XML signatures cannot survive arbitrary edits: modified signed XML or modified
 integrity-protected bodies are rejected rather than silently invalidated. HTTP
-message-signed requests are unsupported because Host/framing changes. Signed
+message-signed requests and responses are unsupported because Host/framing changes. Signed
 no-edit XML can pass. UTF-8 XML only; no compressed SOAP, MTOM, web-UI proxy or
 firmware-upload proxy. Response buffering is bounded; no RTSP passes through it.
 
