@@ -34,6 +34,9 @@ STALE_FACTOR = 3
 MIN_STALE_SECONDS = 15.0
 ACTIVATE_WAIT_SECONDS = 10.0
 MANIFEST = "MANIFEST.sha256"
+EMPTY_INVENTORY = (
+    '{\n  "schema_version": 1,\n  "client_user": "unifi-protect",\n  "cameras": []\n}\n'
+)
 
 
 class CtlError(RuntimeError):
@@ -42,6 +45,8 @@ class CtlError(RuntimeError):
 
 class Probe:
     """Host facts; tests substitute a fake."""
+
+    proc_tables = ("/proc/net/tcp", "/proc/net/tcp6")
 
     def uid(self, user: str) -> int | None:
         try:
@@ -53,16 +58,30 @@ class Probe:
         return time.time()
 
     def listening(self, port: int) -> bool:
-        wanted = {f"0100007F:{port:04X}", f"00000000:{port:04X}"}
-        try:
-            with open("/proc/net/tcp") as table:
-                next(table, None)
-                for line in table:
-                    parts = line.split()
-                    if len(parts) > 3 and parts[3] == "0A" and parts[1] in wanted:
-                        return True
-        except OSError:
-            return False
+        """Anything listening on port that would block binding 127.0.0.1:port.
+
+        IPv6 counts too: a dual-stack [::] listener also holds the IPv4 port.
+        """
+        suffix = f":{port:04X}"
+        blocking = {
+            "0100007F",  # 127.0.0.1
+            "00000000",  # 0.0.0.0
+            "00000000000000000000000000000000",  # ::
+            "00000000000000000000000001000000",  # ::1
+            "0000000000000000FFFF00000100007F",  # ::ffff:127.0.0.1
+            "0000000000000000FFFF000000000000",  # ::ffff:0.0.0.0
+        }
+        for path in self.proc_tables:
+            try:
+                with open(path) as table:
+                    next(table, None)
+                    for line in table:
+                        parts = line.split()
+                        if len(parts) > 3 and parts[3] == "0A" and parts[1].endswith(suffix):
+                            if parts[1][: -len(suffix)] in blocking:
+                                return True
+            except OSError:
+                continue
         return False
 
     def read_status(self, path: str) -> dict | None:
@@ -538,7 +557,17 @@ class Ctl:
 
     def install(self, release: str | None = None) -> int:
         self.require_root()
-        config = self.load_config()
+        # A dry run of a first install has no inventory file to reconcile against;
+        # with no cameras there is nothing to redirect anyway.
+        preview_only = self.dry_run and not os.path.exists(self.paths.config)
+        if not os.path.exists(self.paths.config):
+            # First install: start with no cameras; add them with `shimctl add`/`setup`.
+            self.say(f"create empty inventory {self.paths.config}")
+            if not self.dry_run:
+                _atomic_write(self.paths.config, EMPTY_INVENTORY)
+            config = from_dict(json.loads(EMPTY_INVENTORY))
+        else:
+            config = self.load_config()
         problems = self.preflight(config)
         if problems:
             for problem in problems:
@@ -564,7 +593,8 @@ class Ctl:
             if not self.dry_run:
                 self.systemctl.call("daemon-reload")
         # Remove redirects for disabled/unhealthy cameras before touching services.
-        self.report(self.reconcile(manage_units=False), quiet=True)
+        if not preview_only:
+            self.report(self.reconcile(manage_units=False), quiet=True)
         names = [units.instance(c.id) for c in config.cameras]
         props = self.systemctl.show(names)
         stale = self.systemctl.instances() - set(names)
@@ -597,7 +627,7 @@ class Ctl:
             self.say(f"enable --now {units.RECONCILE_TIMER}")
             if not self.dry_run:
                 self.systemctl.call("enable", "--now", units.RECONCILE_TIMER)
-        code = self.report(self.reconcile(), quiet=False)
+        code = 0 if preview_only else self.report(self.reconcile(), quiet=False)
         if not self.dry_run:
             _atomic_write(
                 os.path.join(self.paths.state, "installed.json"),
@@ -877,7 +907,13 @@ def _print_validation(config: Config, out) -> None:
         )
 
 
-def main(argv=None, *, runner=None, probe=None, out=print, check_ownership=True) -> int:
+def _wsa_list(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def main(
+    argv=None, *, runner=None, probe=None, out=print, check_ownership=True, input_fn=None
+) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--base", default=Paths.base, help="install root (default %(default)s)")
     common.add_argument("--unit-dir", default=Paths.unit_dir)
@@ -914,6 +950,24 @@ def main(argv=None, *, runner=None, probe=None, out=print, check_ownership=True)
     rb = command("rollback-release", "switch to the previous verified release")
     rb.add_argument("--to")
     command("units", "print generated unit files")
+    c = command("cameras", "list Protect's third-party cameras and their shim status")
+    c.add_argument("--needs-shim", action="store_true", help="only adopted cameras that need one")
+    c.add_argument("--all", action="store_true", help="include discovered, unadopted cameras")
+    c.add_argument("--json", action="store_true")
+    a = command("add", "add a camera (by IP, Protect name or MAC) and apply it now")
+    a.add_argument("selector", help="camera IP, Protect name (quoted) or MAC")
+    a.add_argument("--id", dest="camera_id", help="inventory id (default: from Protect name)")
+    a.add_argument("--name", help="display name (default: Protect name)")
+    a.add_argument("--onvif-port", type=int, help="default: from Protect, else 8000")
+    a.add_argument("--listen-port", type=int, help="default: 18100 + last IP octet, or next free")
+    a.add_argument("--mode", choices=["passthrough", "ai_motion"], default="passthrough")
+    a.add_argument("--wsa", type=_wsa_list, help="headers to add, e.g. To,Action,MessageID")
+    a.add_argument("--no-must-understand", dest="must_understand", action="store_false")
+    a.add_argument("--stage", action="store_true", help="write disabled; apply later with enable")
+    command("remove", "redirect off, stop, and delete a camera from the inventory").add_argument(
+        "camera"
+    )
+    command("setup", "interactive: pick Protect cameras to shim, then add and apply them")
     args = parser.parse_args(argv)
     paths = Paths(
         base=args.base,
@@ -929,7 +983,32 @@ def main(argv=None, *, runner=None, probe=None, out=print, check_ownership=True)
         dry_run=args.dry_run,
         check_ownership=check_ownership,
     )
+    from .cameras import CameraError, CameraTool
+    from .protect import ProtectUnavailable
+
+    tool = CameraTool(ctl, input_fn=input_fn)
     try:
+        if args.command == "cameras":
+            return tool.list(needs_shim=args.needs_shim, show_all=args.all, as_json=args.json)
+        if args.command == "add":
+            opts = {
+                key: getattr(args, key)
+                for key in (
+                    "camera_id",
+                    "name",
+                    "onvif_port",
+                    "listen_port",
+                    "mode",
+                    "wsa",
+                    "must_understand",
+                    "stage",
+                )
+            }
+            return tool.add(args.selector, opts)
+        if args.command == "remove":
+            return tool.remove(args.camera)
+        if args.command == "setup":
+            return tool.setup()
         if args.command == "validate":
             config = load(args.config or paths.config)
             _print_validation(config, out)
@@ -963,7 +1042,14 @@ def main(argv=None, *, runner=None, probe=None, out=print, check_ownership=True)
             return ctl.bypass_all(args.command == "bypass-all")
         if args.command == "rollback-release":
             return ctl.rollback_release(args.to)
-    except (ConfigError, CtlError, FirewallError, OSError) as exc:
+    except (
+        CameraError,
+        ConfigError,
+        CtlError,
+        FirewallError,
+        OSError,
+        ProtectUnavailable,
+    ) as exc:
         out(f"ERROR {exc}")
         return 2
     return 2

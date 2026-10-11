@@ -99,7 +99,8 @@ def test_defaults_are_header_only_and_bounded():
         (lambda d: d.update(schema_version=2), "schema_version"),
         (lambda d: d.update(schema_version=True), "schema_version"),
         (lambda d: d.update(client_user="root; rm"), "client_user"),
-        (lambda d: d.update(cameras=[]), "1..128"),
+        (lambda d: d.update(cameras={}), "at most 128"),
+        (lambda d: d.update(cameras=[camera(i) for i in range(1, 130)]), "at most 128"),
         (lambda d: d.update(extra=True), "unknown field"),
     ],
 )

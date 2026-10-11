@@ -15,7 +15,7 @@
     "[dry-run]   iptables-restore: COMMIT",
     "[dry-run] start onvif-shim@parking_east.service"
   ],
-  "release_owner": "root:root 755 /data/onvif-shim/releases/0.1.0-systemdtest/shimctl.py"
+  "release_owner": "root:root 755 /data/onvif-shim/releases/2.0.0-systemdtest/shimctl.py"
 }
 {
   "scenario": "install_starts_instance_and_redirects",
@@ -148,7 +148,7 @@
       "last_error": null,
       "last_error_at": null,
       "last_status": 200,
-      "last_success_at": 1791752622.8011236,
+      "last_success_at": 1791754121.346072,
       "outage_since": null,
       "outages": 0,
       "recoveries": 0
@@ -189,14 +189,14 @@
   "scenario": "crash_fails_open_then_recovers",
   "passed": true,
   "redirect_removed_after_s": 0.2,
-  "redirect_restored_after_s": 5.2,
+  "redirect_restored_after_s": 5.3,
   "restarts": "1"
 }
 {
   "scenario": "hung_process_bypassed_and_watchdog_restarts",
   "passed": true,
-  "redirect_removed_after_s": 30.3,
-  "redirect_restored_after_s": 4.9,
+  "redirect_removed_after_s": 30.2,
+  "redirect_restored_after_s": 5.5,
   "watchdog_journal_lines": "2"
 }
 {
@@ -242,7 +242,7 @@
     "  iptables-restore: COMMIT"
   ],
   "enable": [
-    "backup /data/onvif-shim/cameras.json -> /data/onvif-shim/backups/cameras.json.20261011T210506Z",
+    "backup /data/onvif-shim/cameras.json -> /data/onvif-shim/backups/cameras.json.20261011T213006Z",
     "set cam=parking_east enabled=true",
     "no changes"
   ]
@@ -259,6 +259,24 @@
     "  iptables-restore: -A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment onvif-shim:ct-anchor -j RETURN",
     "  iptables-restore: -A ONVIF_SHIM -d 10.99.0.13/32 -p tcp -m tcp --dport 8000 -m comment --comment onvif-shim:cam:parking_east -j DNAT --to-destination 127.0.0.1:18113",
     "  iptables-restore: COMMIT"
+  ]
+}
+{
+  "scenario": "cli_add_and_remove_camera",
+  "passed": true,
+  "add": [
+    "}",
+    "backup /data/onvif-shim/cameras.json -> /data/onvif-shim/backups/cameras.json.20261011T213006Z",
+    "onvif-shim 2.0.0 release=2.0.0-systemdtest timer=active chain=yes jump=yes bypass_all=False conntrack=5",
+    "CAMERA               EN  UNIT         REDIR PROCESS              TRANSPORT  PULLS ok/fail  REPAIRED LAST MOTION NOTIF",
+    "cam_10_99_0_15       y   active       on    healthy              unobserved 0/0            0        never",
+    "Detection is NOT verified by this tool: confirm motion events on the Protect timeline. Recording health is not assessed: confirm recordings advance in Protect."
+  ],
+  "remove": [
+    "  iptables-restore: -A ONVIF_SHIM -m conntrack --ctstate INVALID -m comment --comment onvif-shim:ct-anchor -j RETURN",
+    "  iptables-restore: -A ONVIF_SHIM -d 10.99.0.13/32 -p tcp -m tcp --dport 8000 -m comment --comment onvif-shim:cam:parking_east -j DNAT --to-destination 127.0.0.1:18113",
+    "  iptables-restore: COMMIT",
+    "no changes"
   ]
 }
 {
@@ -283,4 +301,4 @@
   ],
   "journal_lines_whole_test": "219"
 }
-{"total": 15, "failed": []}
+{"total": 16, "failed": []}

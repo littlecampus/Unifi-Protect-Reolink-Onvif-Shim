@@ -355,8 +355,8 @@ def from_dict(raw: dict) -> Config:
             ),
         )
     items = raw["cameras"]
-    if not isinstance(items, list) or not 1 <= len(items) <= MAX_CAMERAS:
-        raise ConfigError(f"cameras must be a list of 1..{MAX_CAMERAS} entries")
+    if not isinstance(items, list) or len(items) > MAX_CAMERAS:
+        raise ConfigError(f"cameras must be a list of at most {MAX_CAMERAS} entries")
     cameras = tuple(_camera(item, i, defaults) for i, item in enumerate(items))
     seen: dict[str, dict] = {"id": {}, "listen_port": {}, "camera_ip": {}, "upstream": {}}
     for camera in cameras:

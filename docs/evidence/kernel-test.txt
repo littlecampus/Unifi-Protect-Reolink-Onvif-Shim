@@ -73,10 +73,10 @@ iptables: iptables v1.8.11 (legacy) | kernel: 7.0.14-orbstack-00380-ga7e0a2dc953
   "scenario": "conntrack_reply_tuple_and_unmarked_upstream",
   "passed": true,
   "conntrack_entries": [
-    "tcp      6 431999 ESTABLISHED src=10.99.0.1 dst=10.99.0.13 sport=33440 dport=8000 src=127.0.0.1 dst=10.99.0.1 sport=18113 dport=33440 [ASSURED] mark=0 use=1",
-    "tcp      6 118 TIME_WAIT src=10.99.0.1 dst=10.99.0.13 sport=33438 dport=8000 src=10.99.0.13 dst=10.99.0.1 sport=8000 dport=33438 [ASSURED] mark=0 use=1",
-    "tcp      6 431999 ESTABLISHED src=10.99.0.1 dst=10.99.0.13 sport=33456 dport=8000 src=10.99.0.13 dst=10.99.0.1 sport=8000 dport=33456 [ASSURED] mark=0 use=1",
-    "tcp      6 118 TIME_WAIT src=10.99.0.1 dst=10.99.0.13 sport=33436 dport=8000 src=127.0.0.1 dst=10.99.0.1 sport=18113 dport=33436 [ASSURED] mark=0 use=1"
+    "tcp      6 118 TIME_WAIT src=10.99.0.1 dst=10.99.0.13 sport=44626 dport=8000 src=10.99.0.13 dst=10.99.0.1 sport=8000 dport=44626 [ASSURED] mark=0 use=1",
+    "tcp      6 118 TIME_WAIT src=10.99.0.1 dst=10.99.0.13 sport=44624 dport=8000 src=127.0.0.1 dst=10.99.0.1 sport=18113 dport=44624 [ASSURED] mark=0 use=1",
+    "tcp      6 431999 ESTABLISHED src=10.99.0.1 dst=10.99.0.13 sport=44640 dport=8000 src=127.0.0.1 dst=10.99.0.1 sport=18113 dport=44640 [ASSURED] mark=0 use=1",
+    "tcp      6 431999 ESTABLISHED src=10.99.0.1 dst=10.99.0.13 sport=44646 dport=8000 src=10.99.0.13 dst=10.99.0.1 sport=8000 dport=44646 [ASSURED] mark=0 use=1"
   ],
   "long_poll": {
     "uid": 996,

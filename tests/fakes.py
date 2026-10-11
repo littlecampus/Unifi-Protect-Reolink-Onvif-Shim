@@ -112,6 +112,10 @@ class FakeHost:
         self.start_fails: set[str] = set()
         self.owner_match = True
         self.root = True
+        self.protect_json: str | None = None  # Protect DB query output; None = unavailable
+        self.protect_queries: list[str] = []
+        self.config_path: str | None = None
+        self.started_ports: dict[str, int] = {}
 
     # --- Runner ---
     def run(self, argv, input=None):
@@ -123,6 +127,11 @@ class FakeHost:
             if "-m" in argv and "owner" in argv:
                 return done(0 if self.owner_match else 2)
             return done(2)
+        if tool == "runuser":
+            self.protect_queries.append(input or "")
+            if self.protect_json is None:
+                return done(2)
+            return done(0, self.protect_json)
         if tool == "iptables-restore":
             return done(self.ipt.restore(input or ""))
         if tool == "systemctl":
@@ -168,9 +177,21 @@ class FakeHost:
         unit.update(ActiveState="active", SubState="running", MainPID=str(self.next_pid))
         if cam is not None:
             self.write_status(cam, pid=self.next_pid)
-            if cam in self.ports:
-                self.listening_ports.add(self.ports[cam])
+            port = self.ports.get(cam) or self._configured_port(cam)
+            if port:
+                self.listening_ports.add(port)
+                self.started_ports[cam] = port
         return True
+
+    def _configured_port(self, cam):
+        if not self.config_path:
+            return None
+        try:
+            with open(self.config_path) as source:
+                cameras = json.load(source)["cameras"]
+        except (OSError, ValueError, KeyError):
+            return None
+        return next((c["listen_port"] for c in cameras if c.get("id") == cam), None)
 
     def stop_unit(self, name):
         unit = self.unit(name)
@@ -180,7 +201,7 @@ class FakeHost:
             path = os.path.join(self.run_dir, cam, "status.json")
             if os.path.exists(path):
                 os.unlink(path)
-            self.listening_ports.discard(self.ports.get(cam))
+            self.listening_ports.discard(self.started_ports.pop(cam, None))
 
     def write_status(self, cam, *, pid, serviceable=True, heartbeat=None, reason=None):
         os.makedirs(os.path.join(self.run_dir, cam), exist_ok=True)

@@ -23,7 +23,7 @@ from shimlib import release  # noqa: E402
 
 IMAGE = "onvif-shim-systemd-test"
 NAME = "onvif-shim-systemd-test"
-VERSION = "0.1.0-systemdtest"
+VERSION = "2.0.0-systemdtest"
 BASE = "/data/onvif-shim"
 CTL = f"python3 -I {BASE}/current/shimctl.py"
 UNIT = "onvif-shim@parking_east.service"
@@ -359,6 +359,27 @@ def main():
         bypassed and still and cam_rule(),
         bypass=bypass.stdout.splitlines()[-3:],
         resume=resume.stdout.splitlines()[-3:],
+    )
+
+    # Onboarding CLI without a Protect database (degraded path): add by IP applies at
+    # once (instance + redirect); remove turns the redirect off and stops it.
+    added = dx(f"{CTL} add 10.99.0.15 --onvif-port 8000")
+    extra = "onvif-shim@cam_10_99_0_15.service"
+    on = wait_for(lambda: "onvif-shim:cam:cam_10_99_0_15" in dx("iptables -t nat -S").stdout, 10)
+    active = prop("ActiveState", extra)
+    removed = dx(f"{CTL} remove cam_10_99_0_15")
+    check(
+        "cli_add_and_remove_camera",
+        added.returncode == 0
+        and "cannot read Protect's camera list" in added.stdout
+        and on is not None
+        and active == "active"
+        and removed.returncode == 0
+        and "onvif-shim:cam:cam_10_99_0_15" not in dx("iptables -t nat -S").stdout
+        and prop("ActiveState", extra) == "inactive"
+        and cam_rule(),
+        add=added.stdout.splitlines()[-6:],
+        remove=removed.stdout.splitlines()[-4:],
     )
 
     # Reboot: kernel rules and /run vanish; enabled units must restore the path.
