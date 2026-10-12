@@ -1,5 +1,11 @@
-# Never commit camera credentials or your local config
+# Never commit camera credentials, your local inventory or your console targets
 camera.env
 shim.conf
+cameras.json
+.claude/nvr-targets.json
 __pycache__/
 *.pcap
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/

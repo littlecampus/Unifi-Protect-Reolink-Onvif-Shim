@@ -1,282 +1,358 @@
-# UniFi Protect ONVIF Shim for Reolink cameras
+# UniFi Protect ONVIF Shim for Reolink cameras (multi-camera)
 
-**Get motion events, detection-based motion and correct thumbnails working for Reolink cameras in UniFi Protect.** It runs directly on your UniFi console. No Scrypted, Home Assistant or extra hardware.
+**Get motion events working for Reolink (and similar gSOAP) cameras adopted in UniFi
+Protect as third-party ONVIF cameras.** The shim runs on the UniFi console itself,
+serves any number of cameras, and changes nothing in Protect: cameras keep their
+adoption, IP, MAC, history and direct video streams.
 
-If your Reolink camera is adopted in UniFi Protect as a third-party ONVIF camera and it **records fine but never produces motion events**, even though its spotlight or siren clearly shows it's detecting motion, this is probably your problem.
+> ⚠️ **Unofficial and unsupported.** It adds one small service per camera and a few
+> scoped firewall (NAT) rules to your console. Everything is removable with one
+> command. Not affiliated with Ubiquiti or Reolink.
 
-> ⚠️ **Unofficial and unsupported.** This adds a small service and two firewall (NAT) rules to your UniFi console. It's easy to remove (one command), but use it at your own risk. Not affiliated with Ubiquiti or Reolink.
+Based on [cclifton7/Unifi-Protect-Reolink-Onvif-Shim](https://github.com/cclifton7/Unifi-Protect-Reolink-Onvif-Shim)
+(MIT). Version 2 is a multi-camera rework with **no backward compatibility** with the
+single-camera `shim.conf` install; uninstall that first (see [Installation](#installation)).
+
+**Status:** tested with mock cameras, a real Linux kernel firewall and real systemd
+([test evidence](docs/architecture.md#tests-and-results)). Not yet accepted on real
+hardware; see [Limitations](#limitations).
 
 ---
 
 ## Contents
-- [Symptoms](#symptoms)
-- [Confirm you have this problem](#confirm-you-have-this-problem)
-- [Root cause](#root-cause)
-- [What the shim does](#what-the-shim-does)
-- [Compatibility](#compatibility)
-- [Installation](#installation)
-- [Verify it's working](#verify-its-working)
-- [Configuration reference](#configuration-reference)
-- [Day-to-day operation](#day-to-day-operation)
-- [Troubleshooting](#troubleshooting)
-- [How it works (technical)](#how-it-works-technical)
-- [Security considerations](#security-considerations)
-- [Limitations](#limitations)
-- [Related tips](#related-tips)
-
----
+- [Symptoms](#symptoms) · [Confirm you have this problem](#confirm-you-have-this-problem) · [Root cause](#root-cause)
+- [What the shim does](#what-the-shim-does) · [Requirements](#requirements)
+- [Installation](#installation) · [Choosing and adding cameras](#choosing-and-adding-cameras) · [Verify it's working](#verify-its-working)
+- [Configuration](#configuration) · [Day-to-day operation](#day-to-day-operation)
+- [Rollback](#rollback) · [After a UniFi OS update](#after-a-unifi-os-update)
+- [Troubleshooting](#troubleshooting) · [How it works](#how-it-works)
+- [Security](#security) · [Limitations](#limitations) · [Development](#development)
 
 ## Symptoms
 
-- The Reolink camera is adopted in Protect (third-party / ONVIF) and live view and recording work.
-- **No motion events ever appear** in Protect for that camera, even with motion detection enabled.
-- Re-adopting, updating the camera firmware and toggling Protect settings change nothing.
-- The camera *is* detecting motion: its spotlight/siren fires, and the Reolink app shows detections.
-- (Once motion works) thumbnails show an empty scene, and motion events start late or at odd times.
+- The camera is adopted in Protect (third-party / ONVIF); live view and recording work.
+- **No motion events ever appear** for it, even with motion detection enabled.
+- Re-adopting, camera firmware updates and Protect settings change nothing.
+- The camera itself *is* detecting motion (its app, spotlight or siren show it).
 
 ## Confirm you have this problem
 
-SSH into your UniFi console (see [Step 1](#1-enable-ssh-on-the-console)) and run:
+On the console (SSH as `root`):
 
 ```bash
 grep -iE "consecutive errors|circuit-breaker" /srv/unifi-protect/logs/onvif.events.log | tail -5
 ```
 
-If you see lines like these for your camera, repeating every few minutes, you have this problem:
+Lines like these, repeating every 5 minutes for your camera, confirm it:
 
 ```
 warn: Deactivated ONVIF event subscription for XXXXXXXXXXXX after 3 consecutive errors
-warn: REOLINK RLC-XXXX [...] ONVIF event subscription circuit-breaker fired: subscription kept failing after 3 deactivations
-info: REOLINK RLC-XXXX [...] motionDetection available -> misconfigured [...]
+warn: REOLINK ... ONVIF event subscription circuit-breaker fired: subscription kept failing after 3 deactivations
+info: REOLINK ... motionDetection available -> misconfigured [...]
 ```
 
-**Optional definitive check.** Capture the camera's ONVIF traffic for about 5 minutes; Protect retries every 5 minutes. Replace `CAMERA_IP` with your camera's address:
-
-```bash
-timeout 330 tcpdump -i any -A -s 0 "host CAMERA_IP and tcp port 8000" | grep -aE "PullMessages|HTTP/1.1 (200|400)"
-```
-
-`PullMessages` requests answered with `HTTP/1.1 400 Bad Request` confirm it.
+`motionDetection available` alone proves nothing: Protect reports the capability
+before any poll succeeds.
 
 ## Root cause
 
-Protect subscribes to the camera's ONVIF events correctly. The camera accepts the subscription, and Protect even discovers its motion topics. Protect then polls for events with `PullMessages` requests every few seconds. **Those requests carry no WS-Addressing headers** (`wsa:To` / `wsa:Action`). Reolink's embedded gSOAP web server requires them, so it rejects every poll with **HTTP 400** and an empty SOAP fault.
-
-After three failures Protect deactivates the subscription, trips a circuit breaker and marks motion detection as "misconfigured". It retries every 5 minutes, forever. The camera is fine and Protect is *almost* fine, but neither can be configured to fix it: Protect's ONVIF client behavior is compiled in, and Reolink's server is firmware.
-
-Two more problems show up once events flow:
-1. **Reolink's pixel-motion signal is erratic over ONVIF.** In testing it fired 13 s late, or only *after* the person had left (for example when the spotlight turned off). The camera's **AI detections** (`PeopleDetect`, `VehicleDetect`, `DogCatDetect`, …) tracked presence to about a second. Protect ignores those and only reads pixel motion.
-2. **Protect takes a third-party camera's event thumbnail when the event *ends*,** by which point the subject has usually left the frame.
+Protect subscribes to the camera's ONVIF events correctly, then polls them with
+`PullMessages` (and `Renew`, `Unsubscribe`, `SetSynchronizationPoint`) **without
+WS-Addressing headers** (`wsa:To`, `wsa:Action`). Reolink's embedded gSOAP server
+requires them: depending on model and firmware it answers HTTP 400 or simply closes
+the connection. After three failures Protect deactivates the subscription, trips a
+circuit breaker and marks motion detection "misconfigured", retrying every 5 minutes.
+Neither side can be configured to fix it.
 
 ## What the shim does
 
-A small Python service runs on the UniFi console, between Protect and the camera:
-
-| Feature | Effect | Optional? |
+| Feature | Effect | Default |
 |---|---|---|
-| **Header fix** | Adds the missing `wsa:To` / `wsa:Action` headers to Protect's event requests. The subscription stops failing and motion events reach Protect. | Always on |
-| **AI-driven motion** | Protect's motion follows the camera's person/vehicle/animal detections instead of pixel motion. Events start about 1–4 s after someone appears, end about 10–15 s after they leave, and lights, shadows and bugs don't trigger events. | `SHIM_MOTION_MODE=ai` (default) or `passthrough` |
-| **Motion-start thumbnails** | Grabs a snapshot the moment motion starts and gives it to Protect when it asks for the event thumbnail at the end, so thumbnails show the subject. | `SHIM_SNAPSHOTS=1` (default) or `0` |
+| **Header repair** | Adds only the missing `wsa:To` / `wsa:Action` to those four requests. Everything else, including the camera's real motion events, passes through byte-for-byte. | **On** (the only thing a default install does) |
+| **AI-driven motion** | Protect motion follows the camera's Reolink AI detections (person/vehicle/animal) instead of pixel motion. Only for AI cameras whose pixel motion proves unreliable. **On a non-AI camera it would suppress all motion.** | Off; opt-in per camera |
 
-Nothing else changes. Video (RTSP) never passes through the shim, the camera doesn't need re-adopting in Protect, and uninstalling restores the original behavior.
+Video never passes through the shim; it does not open extra streams to cameras.
+Thumbnail/snapshot interception from the single-camera version has been removed
+(it required intercepting camera HTTP and storing camera passwords).
 
-## Compatibility
+## Requirements
 
-**Tested on:**
-- UniFi Dream Machine Pro, UniFi OS 5.1.33, UniFi Protect 7.3.56 (third-party ONVIF motion requires Protect 7.1.55 or newer)
-- Reolink **RLC-1240A**, firmware v3.2.0.5758
-
-**Likely to work:** other UniFi OS consoles that run Protect (UDM SE, UDR, UNVR, CK Gen2+), as long as they have `python3`, `iptables` and `systemd`, which UniFi OS 3.x and later have. It should also work with other Reolink PoE cameras that use the same gSOAP ONVIF stack and `MyRuleDetector/*Detect` AI topics. **If you try another model or console, please open an issue or PR with the result.**
+- UniFi console running Protect with `python3` ≥ 3.11, `systemd`, `iptables` with
+  the `owner` match. Developed against a UNVR Gen 2 Pro, UniFi OS 6.0.11, Protect
+  7.2.105 (Debian 13, Python 3.13, iptables-legacy).
+- Cameras adopted in Protect as third-party ONVIF with **fixed IPs** (DHCP reservations).
+- Protect's ONVIF client runs as the `unifi-protect` user (checked by preflight).
 
 ## Installation
 
-Everything below runs **on the UniFi console** over SSH, except copying the files (Step 3), which runs from your computer. Replace these placeholders:
-- `CONSOLE_IP`: your UniFi console (often your gateway, e.g. `192.168.1.1`)
-- `CAMERA_IP`: your Reolink camera
+Build a pinned release on your computer (from a clean checkout of a reviewed commit):
 
-### 0. Prerequisites
-- The camera is already **adopted in Protect** as a third-party ONVIF camera. ONVIF must be enabled on the camera (Reolink default port **8000**), and Protect needs the camera's credentials.
-- The camera has a **fixed IP**: create a DHCP reservation in UniFi Network. The shim is configured by IP.
-- Protect **7.1.55 or newer** (Protect → Settings → Control Plane / About).
-
-### 1. Enable SSH on the console
-UniFi OS → **Console Settings → SSH** → enable it and set a strong password. The SSH user is `root`.
-
-Optional but recommended: set up key-based login from your computer.
 ```bash
-ssh-keygen -t ed25519
-```
-```bash
-ssh-copy-id root@CONSOLE_IP
+uv run python -m shimlib.release --out dist
+# prints the version (2.0.0-g<commit>), the tarball path and its sha256
+scp dist/onvif-shim-2.0.0-g<commit>.tar.gz root@CONSOLE_IP:/root/
 ```
 
-### 2. Confirm the problem
-Run the check in [Confirm you have this problem](#confirm-you-have-this-problem).
+On the console:
 
-### 3. Copy the files to the console
-From the folder containing this repo, on your computer:
 ```bash
-ssh root@CONSOLE_IP 'mkdir -p /data/onvif-shim'
+V=2.0.0-g<commit>
+sha256sum /root/onvif-shim-$V.tar.gz            # compare with the value printed above
+# Single-camera v1 installed? Remove it first with its own script: sh /data/onvif-shim/install.sh uninstall
+mkdir -p /data/onvif-shim/releases
+tar -xzf /root/onvif-shim-$V.tar.gz -C /data/onvif-shim/releases
+sh /data/onvif-shim/releases/$V/install.sh --dry-run    # shows every change, changes nothing
+sh /data/onvif-shim/releases/$V/install.sh              # first install: no cameras yet
+alias shimctl='python3 -I /data/onvif-shim/current/shimctl.py'
 ```
-```bash
-scp onvif_shim.py rule.sh install.sh shim.conf.example root@CONSOLE_IP:/data/onvif-shim/
-```
-Files under `/data` survive reboots and firmware updates.
 
-### 4. Create the config
-```bash
-ssh root@CONSOLE_IP
-```
-```bash
-cp /data/onvif-shim/shim.conf.example /data/onvif-shim/shim.conf
-```
-```bash
-vi /data/onvif-shim/shim.conf
-```
-Set `SHIM_CAM_HOST=` to your camera's IP. The defaults are fine for everything else. (In `vi`: press `i` to edit, then **Esc**, then type `:wq` and press Enter.)
+`/data/onvif-shim/current/` is a symlink to the active release. Now add cameras
+(next section).
 
-**Skipping motion-start thumbnails?** Set `SHIM_SNAPSHOTS=0`, skip Step 5, and go to Step 6.
+`install.sh` and `uninstall.sh` are non-interactive and idempotent (re-running
+reports `no changes` / `nothing installed`); both accept `--dry-run`. `install.sh`
+reads `/data/onvif-shim/cameras.json`; on a first install it creates it empty, and it
+never rewrites it afterwards (only `shimctl add/remove/enable/disable` edit it, with
+a timestamped backup in `/data/onvif-shim/backups/`). It writes three
+systemd unit files, starts one `onvif-shim@<id>` instance per enabled camera, enables
+a 30-second reconcile timer, and adds a camera's firewall redirect only after its
+instance is verifiably serving. Everything it creates is derived from `/data`, so
+`sh /data/onvif-shim/current/install.sh` reapplies the whole setup at any time.
 
-### 5. (For thumbnails) enable HTTP on the camera and store credentials
-1. In the Reolink app: camera **Settings → Network → Advanced → Server/Port Settings** → enable **HTTP (port 80)**. Protect fetches snapshots from `http://CAMERA_IP/cgi-bin/api.cgi?cmd=onvifSnapPic…`, and this is also why thumbnails fail entirely when HTTP is off.
-2. Save the camera credentials on the console. This prompts without echoing the password and creates a root-only file:
-   ```bash
-   ssh -t root@CONSOLE_IP 'bash -c '\''umask 077; read -r -p "Camera username [admin]: " u; u=${u:-admin}; read -r -s -p "Camera password: " p; echo; printf "SHIM_CAM_USER=%s\nSHIM_CAM_PASS=%s\n" "$u" "$p" > /data/onvif-shim/camera.env; echo "saved ($(wc -l < /data/onvif-shim/camera.env) lines)"'\'''
-   ```
-   It should print `saved (2 lines)`. The shim reads this file literally, so any characters in the password are fine. If your camera supports it, a view-only Reolink user is better than `admin`.
+To remove: `sh /data/onvif-shim/current/uninstall.sh` (see [Rollback](#rollback)).
 
-### 6. Install
+Do not switch cameras to "Detections" recording because events start working; keep
+your recording mode as it is.
+
+## Choosing and adding cameras
+
+`shimctl` reads Protect's own list of third-party cameras (read-only, from Protect's
+local database; camera passwords and stream URLs are never read) and shows which ones
+need the shim: those Protect reports as motion `misconfigured`.
+
 ```bash
-ssh root@CONSOLE_IP 'sh /data/onvif-shim/install.sh'
+shimctl cameras                    # adopted third-party cameras + shim status
+shimctl cameras --needs-shim       # only the ones to fix; add --json for scripts, --all for unadopted
 ```
-Expected output ends with `onvif-shim installed for camera CAMERA_IP`.
+```
+  #  NAME                   IP              MAC          VENDOR   ONVIF PROTECT MOTION  SHIM             ADVICE
+  1  Parking East           10.48.20.13     EC71DBB619A3 Reolink  8000  misconfigured   -                NEEDS SHIM
+  2  Lobby                  10.48.20.40     EC71DB000040 Reolink  8000  available       -                ok without shim
+```
 
-### 7. Recommended Protect settings
-- **Recording mode → Detections** for this camera, instead of Always. This is usually the big storage win.
-- **Notifications:** Protect → **Alarm Manager** → your motion alarm → make sure this camera is **included**. Alarm rules list specific cameras, and a newly adopted or re-adopted camera isn't added automatically.
+Add a camera by IP, Protect name or MAC. It is applied **immediately**: the entry
+is written, its shim starts, and Protect's connections are redirected once it serves.
+
+```bash
+shimctl add 10.48.20.13            # or: shimctl add "Parking East"   or: shimctl add EC:71:DB:B6:19:A3
+shimctl add 10.48.20.13 --dry-run  # show the entry and plan only
+shimctl setup                      # interactive: pick from the cameras that need a shim, confirm, apply
+shimctl remove parking_east        # redirect off, stop, delete from the inventory
+```
+
+`VENDOR` comes from the MAC address's IEEE prefix for about 20 camera brands
+(Reolink, Hikvision, Ezviz, Dahua, Imou, Uniview, Axis, Hanwha, Bosch, Amcrest, Lorex,
+Milesight, Wyze and others; generated from the IEEE registry by `tools/gen_oui.py`),
+otherwise Protect's own type string. It is a hint: OEM-branded cameras report their
+actual manufacturer, Wi-Fi cameras may show their radio chip's maker or nothing.
+Whether a camera needs the shim is decided by Protect's `misconfigured` status, not by
+brand; the repair is proven only for Reolink.
+
+`add` takes the id (from the Protect name, e.g. `parking_east`), name and ONVIF port
+from Protect and assigns a free local port (`18100` + last IP octet when free). Options:
+`--id`, `--name`, `--onvif-port`, `--listen-port`, `--mode ai_motion` (AI cameras only),
+`--wsa To,Action,MessageID`, `--no-must-understand`, `--stage` (write it disabled; apply
+later with `shimctl enable ID`). It refuses duplicates and anything that fails
+validation or the host preflight, and warns about non-Reolink cameras and cameras
+whose ONVIF port is their web port 80. If Protect's database cannot be read (for
+example after a Protect update changed it), add cameras by IP with `--onvif-port`.
+
+Editing `/data/onvif-shim/cameras.json` by hand also works (format below; see
+[cameras.example.json](cameras.example.json)); then run `shimctl validate` and
+`sh /data/onvif-shim/current/install.sh`.
 
 ## Verify it's working
 
-**1. The service and rules are up:**
 ```bash
-ssh root@CONSOLE_IP 'systemctl is-active onvif-shim onvif-shim-rule.timer; iptables -t nat -S OUTPUT | grep 127.0.0.1:180'
+shimctl status
 ```
-You should see `active` twice, then one DNAT rule for port 8000 (plus one for port 80 if snapshots are on).
 
-**2. Protect's subscription stopped failing.** Within about 5 minutes, no new `circuit-breaker` lines should appear:
+Wanted: `UNIT active`, `REDIR on`, `PROCESS healthy`, `TRANSPORT healthy`, and
+`PULLS ok` increasing over a few minutes. Then:
+
 ```bash
-ssh root@CONSOLE_IP 'grep -iE "consecutive errors|circuit-breaker|Started ONVIF" /srv/unifi-protect/logs/onvif.events.log | tail -3'
-```
-A healthy subscription logs `Started ONVIF event subscription` and then **nothing**.
-
-**3. Walk-test.** Walk through the camera's view and watch the shim log live:
-```bash
-ssh root@CONSOLE_IP 'journalctl -u onvif-shim -f -o cat'
-```
-You should see something like:
-```
-event arrived=03:13:50.728Z cam=2026-…T03:13:40Z topic=RuleEngine/MyRuleDetector/PeopleDetect State=true
-motion ON  (AI: PeopleDetect)
-event snapshot captured (420 KB in 0.38s)
-…
-motion OFF
-served motion-start snapshot to Protect (420 KB)
-```
-The event, with a thumbnail showing you, then appears in Protect.
-
-> Tip: `arrived=` is the console's clock and `cam=` is the camera's. A large, constant gap usually means the camera's clock is off (set its NTP server), not that anything is slow.
-
-## Configuration reference
-
-All settings live in `/data/onvif-shim/shim.conf`. After changing it, restart the shim:
-```bash
-ssh root@CONSOLE_IP 'systemctl restart onvif-shim && sleep 2 && sh /data/onvif-shim/rule.sh ensure'
+grep -iE "Started ONVIF|Deactivated|circuit-breaker" /srv/unifi-protect/logs/onvif.events.log | tail
+journalctl -u onvif-shim@CAMERA_ID -f -o cat      # walk through the scene
 ```
 
-| Setting | Default | Description |
-|---|---|---|
-| `SHIM_CAM_HOST` | *(required)* | Camera IP address |
-| `SHIM_CAM_PORT` | `8000` | Camera ONVIF port |
-| `SHIM_CAM_HTTP_PORT` | `80` | Camera HTTP port (snapshots) |
-| `SHIM_MOTION_MODE` | `ai` | `ai` = motion from AI detections; `passthrough` = header fix only (camera's own pixel motion) |
-| `SHIM_OFF_HOLD` | `10` | Seconds to hold "motion off" so brief detection dropouts don't split one visit into several events. Lower = events end sooner |
-| `SHIM_SNAPSHOTS` | `1` | `1` = motion-start thumbnails; `0` = off (port 80 not touched) |
-| `SHIM_SNAP_SERVE_WINDOW` | `20` | Seconds after motion ends during which Protect gets the motion-start snapshot |
-| `SHIM_SNAP_PATH` | Reolink `onvifSnapPic` URL | Snapshot URL path on the camera |
-| `SHIM_LOG_EVENTS` | `1` | Log every camera event with camera vs. arrival time |
-| `SHIM_LISTEN_PORT` / `SHIM_SNAP_LISTEN_PORT` | `18000` / `18080` | Local ports the shim listens on (127.0.0.1 only) |
-| `SHIM_MARK` | `0x40000000` | Firewall mark on the shim's own connections to the camera (UniFi uses the `0x7f0000` range) |
+A healthy camera logs one `Started ONVIF event subscription` and no new
+`Deactivated`/`circuit-breaker` lines. During a walk test the shim logs
+`motion_notification value=true` then `value=false`, and **a motion event appears on
+the Protect timeline**. That last step is the real acceptance: the shim cannot see
+inside Protect, so `status` never claims detection or recording health.
 
-Credentials go in `/data/onvif-shim/camera.env` (created in Step 5), never in `shim.conf`.
+## Configuration
+
+`/data/onvif-shim/cameras.json`; full example: [cameras.example.json](cameras.example.json),
+one camera: [examples/parking-east.json](examples/parking-east.json).
+
+```json
+{
+  "schema_version": 1,
+  "client_user": "unifi-protect",
+  "cameras": [
+    {"id": "front_door", "camera_ip": "192.168.1.50", "onvif_port": 8000,
+     "listen_port": 18101, "enabled": true}
+  ]
+}
+```
+
+| Field | Rules / default |
+|---|---|
+| `client_user` | user whose connections are redirected; default `unifi-protect` |
+| `id` | `[a-z][a-z0-9_]{0,31}`, unique; also the systemd instance name |
+| `camera_ip` | literal IPv4, one entry per camera, not an address of the console |
+| `onvif_port` | camera ONVIF port (Reolink: 8000). Video ports (554, 322, 1935, 7441, 7447, 8554) and TLS ports are refused; 80/8080 only with `"onvif_port_shared_with_http": true` |
+| `listen_port` | unique local port 1024–65535 (loopback only), must be free |
+| `enabled` | required `true`/`false` |
+| `mode` | `passthrough` (default) or `ai_motion` |
+| `ai_motion` | with `ai_motion` only: `off_hold_seconds` (10), `max_motion_seconds` (900, 0 = off) |
+| `wsa_repair` | headers to add when missing: subset of `To`, `Action`, `MessageID`, `ReplyTo`; must include `To`; default `["To", "Action"]` |
+| `wsa_must_understand` | default `true` |
+| `limits` | `max_active_requests` (4), `max_request_bytes` (256 KiB), `max_response_bytes` (4 MiB), `max_header_bytes` (32 KiB), `connect_timeout` (5 s), `client_timeout` (10 s), `response_timeout` (120 s), `drain_timeout` (20 s) |
+
+`defaults.limits`, `defaults.wsa_repair`, `defaults.wsa_must_understand` and
+`status.{heartbeat_seconds, summary_log_seconds, log_lines_per_minute}` set
+inventory-wide values. Unknown fields, duplicate keys, duplicate ids, listeners or
+camera addresses are rejected. The file contains no credentials: the shim forwards
+Protect's own authentication.
+
+After editing by hand: `shimctl validate`, then `sh /data/onvif-shim/current/install.sh --dry-run` and without `--dry-run`.
 
 ## Day-to-day operation
 
-| Task | Command (on the console) |
+| Task | Command |
 |---|---|
-| Status | `systemctl status onvif-shim` |
-| Live log | `journalctl -u onvif-shim -f -o cat` |
-| Recent log | `journalctl -u onvif-shim -n 100 --no-pager -o cat` |
-| Restart | `systemctl restart onvif-shim && sleep 2 && sh /data/onvif-shim/rule.sh ensure` |
-| **After a UniFi OS update** | `sh /data/onvif-shim/install.sh` |
-| **Uninstall** | `sh /data/onvif-shim/install.sh uninstall` (then `rm -rf /data/onvif-shim` to delete the files) |
+| Health | `shimctl status` · `shimctl status CAMERA_ID` · `shimctl status --json` |
+| Live log | `journalctl -u onvif-shim@CAMERA_ID -f -o cat` |
+| Reconcile log / alerts | `journalctl -u onvif-shim-reconcile -n 50 -o cat` |
+| Firewall rules and counters | `iptables -t nat -L ONVIF_SHIM -n -v` |
+| Cameras and what needs a shim | `shimctl cameras` · `shimctl cameras --needs-shim` |
+| Add / remove a camera | `shimctl add IP\|"Name"\|MAC` (applies now) · `shimctl setup` (interactive) · `shimctl remove CAMERA_ID` |
+| Disable one camera | `shimctl disable CAMERA_ID` |
+| Restart one camera's shim | `systemctl restart onvif-shim@CAMERA_ID` |
+| Clear a failed instance (after fixing the cause) | `shimctl reset CAMERA_ID` |
+| Upgrade | extract a new release, `sh /data/onvif-shim/releases/NEW/install.sh --dry-run`, then without `--dry-run` (switches the release and restarts running instances) |
 
-**Firmware updates:** UniFi OS updates can wipe the systemd units in `/etc` and the firewall rules. Your files in `/data` survive. If motion stops after an update, re-run `install.sh`. SSH keys may also need re-adding with `ssh-copy-id`.
+`shimctl status` keeps separate questions separate:
 
-**Camera IP change:** update `SHIM_CAM_HOST`, restart, and update the camera's address in Protect.
+| Column | Meaning |
+|---|---|
+| `UNIT`, `PROCESS` | is the camera's shim process running and serving (heartbeat, listening, not unsafe) |
+| `REDIR` | are Protect's connections to this camera currently redirected through it |
+| `TRANSPORT` | event transport: `healthy` (recent successful polls), `degraded`, `failing`, `outage` (camera unreachable), `unobserved` |
+| `PULLS ok/fail`, `REPAIRED` | counters since the process started |
+| `LAST MOTION NOTIF` | last camera motion=true event relayed to Protect |
+
+`ALERT` lines need action: `unit_failed`, `unhealthy cam=… reason=…`,
+`conflicting_dnat`, `config_invalid`, `client_user_missing`, `firewall_apply_failed`,
+`bypass_all_active`.
+
+## Rollback
+
+| Scope | Command | Effect |
+|---|---|---|
+| One camera | `shimctl disable CAMERA_ID` | backs up the inventory, removes that camera's redirect **first**, then stops its instance. Protect talks to the camera directly again. `shimctl enable CAMERA_ID` to undo. |
+| Every camera, now | `shimctl bypass-all` | removes all redirects and keeps them off (persists across reboots) until `shimctl resume` |
+| Code version | `shimctl rollback-release [--to VERSION]` | switches back to the previous verified release and restarts instances |
+| Everything | `sh /data/onvif-shim/current/uninstall.sh` (`--dry-run` to preview) | removes redirects first, then stops and removes all units and the firewall chain; keeps `/data/onvif-shim` (inventory, releases, backups) so `install.sh` can reapply it; `rm -rf /data/onvif-shim` afterwards removes everything |
+| If Python is broken | `iptables -t nat -D OUTPUT -p tcp -m owner --uid-owner $(id -u unifi-protect) -m comment --comment onvif-shim:jump -j ONVIF_SHIM; iptables -t nat -F ONVIF_SHIM; iptables -t nat -X ONVIF_SHIM; systemctl disable --now onvif-shim-reconcile.timer 'onvif-shim@*'` | manual fail-open |
+
+To prove a rollback worked, confirm the camera's rule is gone
+(`iptables -t nat -S | grep onvif-shim:cam:CAMERA_ID` prints nothing) and that
+Protect's original behavior returns in `onvif.events.log`.
+
+## After a UniFi OS update
+
+`/data` survives updates; unit files in `/etc/systemd/system` and firewall rules may
+not. If they are gone, nothing is redirected (Protect is back to its original,
+failing behavior; video is unaffected). The reconcile timer lives on the console too,
+so it cannot repair an update that removed it. After every update:
+
+```bash
+ubnt-device-info firmware; dpkg-query -W unifi-protect
+python3 -VV; iptables -V; id unifi-protect
+shimctl validate --preflight
+sh /data/onvif-shim/current/install.sh --dry-run
+sh /data/onvif-shim/current/install.sh
+shimctl status
+```
+
+If `status` shows requests as `complete` rather than `repaired`, Protect now sends the
+headers itself and the shim is no longer needed for that camera.
 
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `circuit-breaker fired` still appearing | The shim isn't in the path. Check `systemctl is-active onvif-shim` and that the DNAT rule exists. Run `sh /data/onvif-shim/rule.sh ensure`. |
-| Shim log shows no `event arrived` lines during a walk-test | The camera isn't sending AI events. Check that detection is enabled in the Reolink app and the camera is sending ONVIF events. Try `SHIM_MOTION_MODE=passthrough` to use pixel motion. |
-| `motion ON` in the shim log but no event in Protect | Check motion detection is enabled for the camera in Protect, then check `/srv/unifi-protect/logs/events.cameras.log`. |
-| `event snapshot attempt … failed` | HTTP isn't enabled on the camera, the credentials are wrong (`camera.env`), or the camera's snapshot service briefly stalled (it retries 3×; Protect then falls back to its normal snapshot). |
-| Thumbnails still show the empty scene | `SHIM_SNAPSHOTS=0`, no `camera.env`, or HTTP is disabled on the camera. The shim's startup log line says which. |
-| `Snapshot not available` in Protect logs | HTTP (port 80) is disabled on the camera. Needed for *any* third-party thumbnail, with or without the shim. |
-| Events in Protect but no phone notification | Add the camera to your **Alarm Manager** motion rule. Also check phone Focus modes and the Protect app's notification settings. |
-| `non-200 … deviceIO_service: 400` in the log | Harmless. Reolink doesn't implement that ONVIF service; this happens without the shim too. |
-| Service won't start: `SHIM_CAM_HOST is not set` | Create or fix `/data/onvif-shim/shim.conf`. |
+| `REDIR off`, `PROCESS no_status`/`unit_inactive` | instance not running: `systemctl status onvif-shim@ID`, `journalctl -u onvif-shim@ID` |
+| `unit_failed` alert | restart limit hit or safety refusal (port in use, disabled camera, loop). Fix the cause, then `shimctl reset ID` |
+| `TRANSPORT unobserved` with `REDIR on` | Protect hasn't polled yet (it retries every 5 minutes), or Protect connects as another user: check `ss -tnep 'dst CAMERA_IP and dport = :8000'` |
+| `TRANSPORT failing`, `PULLS fail` rising | camera still rejects: try `"wsa_repair": ["To", "Action", "MessageID"]` or `"wsa_must_understand": false` for that camera |
+| `TRANSPORT outage` | camera unreachable (power, PoE, network) |
+| `repairs` shows `skipped_*` | request not safely editable (signed, malformed, unusual encoding); forwarded unchanged |
+| `conflicting_dnat` alert | the single-camera v1 shim's rules are still present; uninstall it |
+| Events reach the shim log but not Protect | check motion detection is enabled for the camera in Protect and `/srv/unifi-protect/logs/events.cameras.log` |
 
-Protect's own logs are in `/srv/unifi-protect/logs/`. The useful ones are `onvif.events.log` and `events.cameras.log` (search for the camera's MAC or IP), and `notifications.push.log`.
-
-## How it works (technical)
+## How it works
 
 ```
-Protect ──► CAMERA_IP:8000 ──[iptables nat OUTPUT DNAT]──► 127.0.0.1:18000 ─┐
-Protect ──► CAMERA_IP:80   ──[iptables nat OUTPUT DNAT]──► 127.0.0.1:18080 ─┤  onvif_shim.py
-                                                                             │  (python3, stdlib only)
-            camera ◄──── shim's own connections, tagged SO_MARK 0x40000000 ◄─┘  (DNAT rules skip marked traffic)
+Protect (unifi-protect) ──► CAMERA_IP:8000
+   nat OUTPUT: only connections owned by unifi-protect jump to ONVIF_SHIM
+   ONVIF_SHIM: CAMERA_IP:8000 -> DNAT 127.0.0.1:LISTEN_PORT
+      ▼
+onvif-shim@ID (unprivileged, one per camera) adds missing wsa:To/Action
+      ▼
+CAMERA_IP:8000   (the shim's own connection is not Protect's user: not redirected)
 ```
 
-- **Transparent redirect:** the DNAT rules are in the `nat OUTPUT` chain, so they only affect connections that start on the console itself, i.e. Protect. The UniFi console's iptables has no `owner` match. Instead, the shim tags its own connections to the camera with a firewall mark, and the rules skip marked traffic, which prevents loops. RTSP (554) is never touched.
-- **Header fix:** for `PullMessages`, `Renew`, `Unsubscribe` and `SetSynchronizationPoint`, the shim inserts `wsa:MessageID`, `wsa:ReplyTo`, `wsa:To` (the request URL) and `wsa:Action`. The WS-Security digest only covers nonce + timestamp + password, not the headers, so Protect's authentication stays valid.
-- **AI motion:** the shim reads each `PullMessagesResponse`. It drops the camera's `Changed` pixel-motion messages (`CellMotionDetector/Motion`, `VideoSource/MotionAlarm`) and, whenever the OR of all `MyRuleDetector/*Detect` states changes, inserts a `CellMotionDetector/Motion` message built from the AI message itself (same source tokens, new topic, `IsMotion`). "Off" is delayed by `SHIM_OFF_HOLD` and delivered in a later poll if needed. Protect polls about every 4.5 s. `Initialized` messages (a new subscription) reset the state.
-- **Thumbnails:** at motion ON, the shim fetches the camera's snapshot with digest auth (3 tries × 5 s). Protect requests third-party thumbnails at motion *end*, twice (cropped and full). For `SHIM_SNAP_SERVE_WINDOW` seconds after motion OFF, requests that already carry an `Authorization` header (sent after the camera's 401 challenge) get the cached image. Everything else passes through.
-- **Fail-safe:** a systemd timer runs `rule.sh ensure` every 30 s. It re-adds rules that UniFi flushed, and **removes** them if the shim isn't listening, so Protect falls back to talking to the camera directly (motion stops working, but nothing else breaks). Stopping the service also removes the rules.
+Only Protect's own connections to configured camera ONVIF ports are redirected;
+RTSP, snapshots and every other process's traffic are untouched. Details, security
+model, failure behavior and test evidence: [docs/architecture.md](docs/architecture.md).
 
-## Security considerations
+## Security
 
-- The shim only listens on `127.0.0.1` and only receives traffic redirected from the console itself.
-- Cached snapshots are only returned to requests that already carry an `Authorization` header, which only Protect sends after the camera's challenge. The shim does not check that header itself; anything able to connect to the console's loopback already has root on your console.
-- `camera.env` holds the camera password in plain text, readable only by root (mode `600`). Protect already stores the same credentials on the same console, so this doesn't add a new place an attacker could get them. Use a view-only camera user if your model allows it.
-- Enabling HTTP on the camera adds its web API to the attack surface. ONVIF (8000) and RTSP (554) are unencrypted HTTP already. **The strongest mitigation is a dedicated camera VLAN**: allow only the console to reach the cameras, and block the cameras from the internet and your other devices. Also consider disabling **UPnP** and **P2P/UID** remote access in the Reolink settings.
+- Each camera's shim runs as a systemd dynamic user with **no capabilities**,
+  `NoNewPrivileges`, a seccomp filter and a read-only view of the system. Only the
+  control tool (`shimctl.py`, run by unit hooks, the timer or you) runs as root, to
+  manage the firewall and services.
+- No credentials are stored. Logs contain camera ids, counters and fixed reason
+  words only: never authorization headers, cookies, WS-Security tokens, bodies or URLs.
+- Listeners bind to 127.0.0.1. The status files live in `/run/onvif-shim/`.
+- Releases are pinned and checksummed; nothing is downloaded on the console.
+- ONVIF and RTSP are unencrypted protocols: a dedicated camera VLAN where only the
+  console can reach the cameras remains the strongest protection.
 
 ## Limitations
 
-- **One camera per install.** The shim handles a single camera IP. Multi-camera support (one listener pair per camera) would be a welcome contribution.
-- **Protect shows plain "Motion", not "Person"/"Vehicle".** Protect doesn't accept third-party smart-detection types. The AI detections decide *when* motion happens, not how it's labeled.
-- **Unofficial:** a future Protect or UniFi OS release could change log paths or ONVIF behavior. If Protect ever adds WS-Addressing itself, set `SHIM_MOTION_MODE=passthrough` or uninstall.
-- AI-driven motion depends on Reolink's `MyRuleDetector/*Detect` ONVIF topics. Cameras without onboard AI should use `passthrough`.
+- Not yet accepted on real hardware: no camera/Protect pair has been verified
+  end-to-end with this version. See the risk list in
+  [docs/architecture.md](docs/architecture.md#unverified-behavior-and-remaining-risks).
+- Requires the `owner` iptables match and Protect running as its own user.
+- IPv4 cameras only; plain HTTP ONVIF only (no TLS).
+- Protect shows plain "Motion"; AI mode decides *when*, not the label.
+- About 15 MB of memory per camera (measured in a simulation; see architecture doc).
 
-## Related tips
+## Development
 
-- **Playback stalls / buffering dots:** Protect records a single stream from third-party cameras, the camera's main stream. At 8–12 MP H.265, that's beyond many phones' hardware decoders and heavy over remote connections. Setting the Reolink main stream to **3840×2160, 4–6 Mbps, 15–20 fps, I-frame interval 1–2× fps** usually fixes it and saves storage too.
-- **Camera clock:** Reolink clocks can drift even with NTP on. Point NTP at `pool.ntp.org` or your gateway.
-
----
-
-*Contributions welcome, especially test results from other Reolink models and UniFi consoles.*
+```bash
+uv sync
+uv run pytest -q -W error                                   # 187 tests, mocks
+uv run ruff check shimlib tests tools onvif_shim.py shimctl.py
+python3 tools/gen_oui.py --registry DIR --date YYYY-MM-DD    # refresh vendor prefixes (see script)
+tests/kernel/run.sh                                         # real netfilter, privileged container
+uv run python tests/systemd/systemd_test.py                 # real systemd as PID 1
+```
 
 ## License
 

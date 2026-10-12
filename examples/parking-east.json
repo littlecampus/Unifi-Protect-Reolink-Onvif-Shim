@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "client_user": "unifi-protect",
+  "cameras": [
+    {
+      "id": "parking_east",
+      "name": "Parking East (RLC-410-5MP, EC71DBB619A3)",
+      "camera_ip": "10.48.20.13",
+      "onvif_port": 8000,
+      "listen_port": 18113,
+      "enabled": true,
+      "mode": "passthrough",
+      "snapshots": {"enabled": false}
+    }
+  ]
+}
