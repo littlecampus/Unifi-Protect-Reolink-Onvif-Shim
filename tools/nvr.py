@@ -48,7 +48,7 @@ B=/data/onvif-shim
 section() { printf '\n=== %s ===\n' "$1"; }
 section identity
 echo "user=$(id -un) host=$(hostname) date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-ubnt-device-info firmware 2>&1 || echo "ubnt-device-info unavailable"
+echo "firmware=$(cat /usr/lib/version 2>/dev/null || echo unknown)"
 dpkg-query -W unifi-protect unifi-core 2>&1
 python3 -VV 2>&1; iptables -V 2>&1; id unifi-protect 2>&1
 uptime; free -m
@@ -169,20 +169,23 @@ def targets_add(args) -> int:
     if args.name in targets:
         fail(f"target {args.name!r} exists; `targets remove {args.name}` first to change it")
     # Prove the destination is a UniFi console reachable as root before saving it.
+    # UniFi OS consoles all carry the unifi-core package; /usr/lib/version is firmware.
     out = dest_output(
-        args.ssh, "id -u; ubnt-device-info firmware 2>/dev/null || echo not-a-unifi-console"
+        args.ssh,
+        "id -u; dpkg-query -W -f='${Version}\\n' unifi-core 2>/dev/null || echo none; "
+        "cat /usr/lib/version 2>/dev/null || echo unknown",
     ).split()
     if not out or out[0] != "0":
         fail(f"{args.ssh}: SSH works but not as root (uid {out[0] if out else '?'})")
-    if out[-1] == "not-a-unifi-console":
-        fail(f"{args.ssh}: no ubnt-device-info; not a UniFi console")
+    if len(out) < 3 or out[1] == "none":
+        fail(f"{args.ssh}: no unifi-core package; not a UniFi console")
     entry = {"ssh": args.ssh, "production": args.production == "true"}
     if args.description:
         entry["description"] = args.description
     targets[args.name] = entry
     write_targets(targets)
     kind = "PRODUCTION" if entry["production"] else "test"
-    print(f"added {args.name} ({kind}) -> {args.ssh}, firmware {out[-1]}")
+    print(f"added {args.name} ({kind}) -> {args.ssh}, unifi-core {out[1]}, firmware {out[2]}")
     return 0
 
 
