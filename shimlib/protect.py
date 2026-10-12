@@ -12,10 +12,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from . import oui
+
 DB_NAME = "unifi-protect"
 DB_PORT = "5433"
-# MAC prefixes observed on the TLC recorder; anything else is reported as Protect's type.
-VENDOR_OUI = {"EC71DB": "Reolink", "BC325F": "Dahua"}
 QUERY = """\
 BEGIN READ ONLY;
 SELECT coalesce(json_agg(json_build_object(
@@ -48,8 +48,8 @@ class ProtectCamera:
 
     @property
     def vendor(self) -> str:
-        oui = (self.mac or "").replace(":", "").upper()[:6]
-        return VENDOR_OUI.get(oui) or (self.type or "unknown")
+        """Brand from the MAC's IEEE prefix (shimlib/oui.py), else Protect's type."""
+        return oui.vendor(self.mac) or self.type or "unknown"
 
     @property
     def is_reolink(self) -> bool:

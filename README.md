@@ -150,6 +150,14 @@ shimctl setup                      # interactive: pick from the cameras that nee
 shimctl remove parking_east        # redirect off, stop, delete from the inventory
 ```
 
+`VENDOR` comes from the MAC address's IEEE prefix for about 20 camera brands
+(Reolink, Hikvision, Ezviz, Dahua, Imou, Uniview, Axis, Hanwha, Bosch, Amcrest, Lorex,
+Milesight, Wyze and others; generated from the IEEE registry by `tools/gen_oui.py`),
+otherwise Protect's own type string. It is a hint: OEM-branded cameras report their
+actual manufacturer, Wi-Fi cameras may show their radio chip's maker or nothing.
+Whether a camera needs the shim is decided by Protect's `misconfigured` status, not by
+brand; the repair is proven only for Reolink.
+
 `add` takes the id (from the Protect name, e.g. `parking_east`), name and ONVIF port
 from Protect and assigns a free local port (`18100` + last IP octet when free). Options:
 `--id`, `--name`, `--onvif-port`, `--listen-port`, `--mode ai_motion` (AI cameras only),
@@ -339,8 +347,9 @@ model, failure behavior and test evidence: [docs/architecture.md](docs/architect
 
 ```bash
 uv sync
-uv run pytest -q -W error                                   # 182 tests, mocks
-uv run ruff check shimlib tests onvif_shim.py shimctl.py
+uv run pytest -q -W error                                   # 187 tests, mocks
+uv run ruff check shimlib tests tools onvif_shim.py shimctl.py
+python3 tools/gen_oui.py --registry DIR --date YYYY-MM-DD    # refresh vendor prefixes (see script)
 tests/kernel/run.sh                                         # real netfilter, privileged container
 uv run python tests/systemd/systemd_test.py                 # real systemd as PID 1
 ```

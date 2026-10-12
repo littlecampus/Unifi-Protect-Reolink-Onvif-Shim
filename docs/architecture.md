@@ -30,6 +30,7 @@ idea come from Casey Clifton's original design.
 | `onvif_shim.py` | one camera's service (systemd `onvif-shim@<id>`) |
 | `shimctl.py`, `install.sh`, `uninstall.sh` | control CLI (root) and its non-interactive install and uninstall wrappers |
 | `shimlib/protect.py`, `shimlib/cameras.py` | read-only Protect camera list; `cameras`, `add`, `remove`, `setup` |
+| `shimlib/oui.py`, `tools/gen_oui.py` | camera-brand MAC prefixes (188 IEEE assignments, 22 brands, exact organization names, TP-Link excluded) and their generator (development only) |
 | `shimlib/` | config, SOAP repair, HTTP framing, events/AI, shim, firewall, units, control, release builder |
 | `cameras.example.json`, `examples/` | inventories |
 | `tests/` | mocks and fakes (pytest); `tests/kernel/` real netfilter; `tests/systemd/` real systemd |
@@ -218,11 +219,11 @@ This is not production acceptance for 50 real cameras.
 
 | Suite | Command | Result (2026-10-11) |
 | --- | --- | --- |
-| Unit/integration (mocks): config, SOAP repair, events/AI, HTTP framing, 50-camera concurrency, overload, stall isolation, outage/recovery, loop, drain, sanitized logs, lifecycle with fake systemd/iptables | `uv run pytest -q -W error` | 182 passed on Python 3.12 and 3.13 |
+| Unit/integration (mocks): config, SOAP repair, events/AI, HTTP framing, 50-camera concurrency, overload, stall isolation, outage/recovery, loop, drain, sanitized logs, lifecycle with fake systemd/iptables | `uv run pytest -q -W error` | 187 passed on Python 3.12 and 3.13 (+1 registry-freshness check run with `IEEE_OUI_DIR`) |
 | Real netfilter (privileged container, iptables-legacy, separate camera netns) | `tests/kernel/run.sh` | 15/15 scenarios ([evidence/kernel-test.txt](evidence/kernel-test.txt)) |
 | Real systemd 257 as PID 1 | `uv run python tests/systemd/systemd_test.py` | 16/16 scenarios ([evidence/systemd-test.txt](evidence/systemd-test.txt)) |
 | Simulated 50 cameras on real kernel | `docker run --rm --privileged -v "$PWD:/src:ro" onvif-shim-kernel-test python3 /src/tests/kernel/scale_test.py` | see Capacity |
-| Lint / format / inventory | `uv run ruff check shimlib tests onvif_shim.py shimctl.py`, `uv run ruff format --check shimlib tests onvif_shim.py shimctl.py`, `python3 -I shimctl.py validate --config cameras.example.json` | clean / valid |
+| Lint / format / inventory | `uv run ruff check shimlib tests tools onvif_shim.py shimctl.py`, `uv run ruff format --check shimlib tests tools onvif_shim.py shimctl.py`, `python3 -I shimctl.py validate --config cameras.example.json` | clean / valid |
 
 Kernel scenarios: shim has zero capabilities; uid-996 PullMessages traverses
 the shim and is repaired; conntrack shows the reply tuple
