@@ -16,9 +16,9 @@ or run on a console.
   `nvr.py targets add NAME --ssh DEST --production true|false [--description TEXT]`.
   It tests SSH as root on a UniFi console before saving. Changing a target is
   `targets remove NAME` then `add`, with the user's answers again.
-- `python3 tools/nvr.py --help`: `snapshot` (read-only bundle), `shimctl TARGET ...`,
-  `run TARGET -- CMD`, `upload`. Quote remote shell syntax (`$(...)`, pipes) in single
-  quotes so it expands on the console.
+- `python3 tools/nvr.py --help`: `snapshot` (read-only bundle), `version` (deployed
+  commit vs `origin/main`), `shimctl TARGET ...`, `run TARGET -- CMD`, `upload`. Quote
+  remote shell syntax (`$(...)`, pipes) in single quotes so it expands on the console.
 
 ## Change protocol
 
@@ -47,8 +47,9 @@ A user's request to roll back a named scope is approval for that scope (see the
 - Shim state changes only through `shimctl`, `install.sh` and `uninstall.sh` (they lock,
   back up, validate and fail open). The one hand edit of firewall or units is the
   README's manual fail-open, for when Python on the console is broken.
-- Releases are built here from a clean commit and copied with `nvr.py upload`; the
-  console downloads nothing.
+- Releases are built here from a commit that passed CI
+  (`python -m shimlib.release --ref REF`) and copied with `nvr.py upload`; the console
+  downloads nothing.
 - Logs, notes and evidence carry no secrets: no auth headers, cookies, passwords or
   stream URLs.
 

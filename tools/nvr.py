@@ -13,6 +13,7 @@ SSH runs in batch mode, so each target needs key authentication as root.
     python3 tools/nvr.py shimctl TARGET --release V cameras   ...from an uploaded release
     python3 tools/nvr.py run TARGET -- 'journalctl -u onvif-shim@cam -n 50 -o cat'
     python3 tools/nvr.py upload TARGET dist/onvif-shim-V.tar.gz   copy, verify, extract
+    python3 tools/nvr.py version TARGET [--ref origin/main]  deployed commit vs ref
 
 `upload` writes only /root/<tarball> and /data/onvif-shim/releases/V on the console;
 installing the release is a separate step (install.sh).
@@ -30,10 +31,14 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+from shimlib import release  # noqa: E402
+
 TARGETS_FILE = os.environ.get("NVR_TARGETS", os.path.join(ROOT, ".claude", "nvr-targets.json"))
 BASE = "/data/onvif-shim"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
 TARGET_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+DEPLOYED = re.compile(r"^(?P<version>.+)-g(?P<sha>[0-9a-f]{12})(?P<dirty>-dirty)?$")
 TARBALL = re.compile(r"^onvif-shim-(?P<version>[0-9][A-Za-z0-9.+-]*)\.tar\.gz$")
 
 # Read-only: every command only reads state. Sections are printed even when a
@@ -251,6 +256,63 @@ def cmd_upload(args) -> int:
     return 0
 
 
+def shipped_log(range_: str) -> list[str]:
+    """One-line log of commits in range_ that change files shipped in a release."""
+    paths = [*release.FILES, "shimlib"]
+    out = release.git(ROOT, "log", "--oneline", "--no-decorate", range_, "--", *paths)
+    return out.splitlines() if out else []
+
+
+def cmd_version(args) -> int:
+    ref = args.ref
+    if not args.no_fetch and ref.startswith("origin/"):
+        fetched = subprocess.run(["git", "-C", ROOT, "fetch", "--quiet", "origin"])
+        if fetched.returncode != 0:
+            print("WARN git fetch failed; comparing with the local copy of " + ref)
+    try:
+        latest = release.git_version(ROOT, ref=ref)  # also refuses refs without the v2 shim
+    except SystemExit as exc:
+        fail(f"{exc}; pass --ref origin/BRANCH for the branch you deploy")
+    link = ssh_output(args.target, f"readlink {BASE}/current || true").strip()
+    deployed = os.path.basename(link)
+    print(f"target={args.target} deployed={deployed or 'none'} ref={ref} latest={latest}")
+    if not deployed:
+        print("state=not-installed (first install: shim-deploy)")
+        return 0
+    match = DEPLOYED.match(deployed)
+    if not match:
+        print(f"state=unknown (release name {deployed!r} has no -g<commit>)")
+        return 0
+    sha = match["sha"]
+    if match["dirty"]:
+        print("WARN deployed release was built with uncommitted changes (-dirty)")
+    known = subprocess.run(
+        ["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True
+    )
+    if known.returncode != 0:
+        print(f"state=unknown-commit ({sha} is not in this repository; fetch it?)")
+        return 0
+    ancestor = subprocess.run(
+        ["git", "-C", ROOT, "merge-base", "--is-ancestor", sha, ref]
+    ).returncode
+    if ancestor == 0:
+        behind = shipped_log(f"{sha}..{ref}")
+        if not behind:
+            print("state=up-to-date (no shipped files changed since the deployed commit)")
+            return 0
+        print(f"state=behind shipped_commits={len(behind)}")
+        for line in behind:
+            print(f"  {line}")
+        print(f"update: build with `python3 -m shimlib.release --ref {ref} --out dist`")
+        return 0
+    print(f"state=diverged (deployed commit {sha} is not on {ref})")
+    for line in shipped_log(f"{ref}..{sha}"):
+        print(f"  only deployed: {line}")
+    for line in shipped_log(f"{sha}..{ref}"):
+        print(f"  only on {ref}: {line}")
+    return 0
+
+
 def main(argv=None) -> int:
     sys.stdout.reconfigure(line_buffering=True)  # keep order with ssh's output
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -276,6 +338,11 @@ def main(argv=None) -> int:
     r.add_argument("target")
     r.add_argument("command", nargs=argparse.REMAINDER)
     r.set_defaults(func=cmd_run)
+    v = sub.add_parser("version", help="is the deployed release behind a git ref?")
+    v.add_argument("target")
+    v.add_argument("--ref", default="origin/main", help="default %(default)s")
+    v.add_argument("--no-fetch", action="store_true", help="skip `git fetch origin`")
+    v.set_defaults(func=cmd_version)
     u = sub.add_parser("upload", help="copy, verify and extract a release tarball")
     u.add_argument("target")
     u.add_argument("tarball")

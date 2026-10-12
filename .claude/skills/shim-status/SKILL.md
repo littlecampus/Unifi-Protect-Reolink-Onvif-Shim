@@ -15,7 +15,9 @@ Read-only on any target. It diagnoses and proposes fixes; applying a fix belongs
 2. **Classify the install.** From `install` and `units`: not installed, installed with
    no cameras, or installed with N cameras. Flag a `LEGACY v1` line, `BYPASS-ALL ACTIVE`,
    missing unit files while `current` exists (UniFi OS update removed them), and
-   `foreign_dnat` entries.
+   `foreign_dnat` entries. Then `python3 tools/nvr.py version TARGET` for whether the
+   deployed release is behind `origin/main` (if it says `main` is not a multi-camera
+   release, report that and skip it).
 3. **Account for every camera and every alert.** For each inventory camera in
    `status --json`, record `unit`, `redirect`, `process_healthy`/`process_reason`,
    `event_transport`, `pulls_ok`/`pulls_failed`, `repairs`, and
@@ -29,9 +31,9 @@ Read-only on any target. It diagnoses and proposes fixes; applying a fix belongs
    the camera's redirect coming on: a new `Deactivated`/`circuit-breaker` line for a
    shimmed camera means it is still failing. In `cameras --json`, list cameras whose
    `advice` is `NEEDS SHIM`.
-5. **Report**: overall verdict (healthy, degraded, broken, not installed); a per-camera
-   table; each finding with its evidence and the proposed fix, naming the skill that
-   applies it.
+5. **Report**: overall verdict (healthy, degraded, broken, not installed); the deployed
+   release and its `version` state; a per-camera table; each finding with its evidence
+   and the proposed fix, naming the skill that applies it.
 
 ## Reading the numbers
 
