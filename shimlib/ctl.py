@@ -573,9 +573,10 @@ class Ctl:
             for problem in problems:
                 self.out(f"PREFLIGHT {problem}")
             return 2
-        if release:
-            self.switch_release(release)
-        else:
+        # Instances run current/onvif_shim.py, so a new release needs a restart even
+        # when the unit files are unchanged.
+        switched = bool(release) and self.switch_release(release)
+        if not release:
             current = self.current_release()
             if current is None:
                 raise CtlError("no current release; pass --release VERSION")
@@ -614,8 +615,9 @@ class Ctl:
                     self.say(f"start {unit}")
                     if not self.dry_run and not self.systemctl.call("start", unit):
                         self.out(f"WARN start failed: {unit} (redirect stays off)")
-                elif changed:
-                    self.say(f"restart {unit} (unit definition changed)")
+                elif changed or switched:
+                    why = "unit definition changed" if changed else "release changed"
+                    self.say(f"restart {unit} ({why})")
                     if not self.dry_run:
                         self.systemctl.call("restart", unit)
             elif p.get("UnitFileState") == "enabled" or p.get("ActiveState") in ACTIVE_STATES:

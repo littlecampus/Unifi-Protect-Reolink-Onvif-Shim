@@ -242,7 +242,7 @@ After editing by hand: `shimctl validate`, then `sh /data/onvif-shim/current/ins
 | Disable one camera | `shimctl disable CAMERA_ID` |
 | Restart one camera's shim | `systemctl restart onvif-shim@CAMERA_ID` |
 | Clear a failed instance (after fixing the cause) | `shimctl reset CAMERA_ID` |
-| Upgrade | extract a new release, `sh /data/onvif-shim/releases/NEW/install.sh --dry-run`, then without `--dry-run` |
+| Upgrade | extract a new release, `sh /data/onvif-shim/releases/NEW/install.sh --dry-run`, then without `--dry-run` (switches the release and restarts running instances) |
 
 `shimctl status` keeps separate questions separate:
 

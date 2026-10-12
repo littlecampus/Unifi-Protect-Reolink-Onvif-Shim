@@ -330,6 +330,30 @@ def test_release_verification_and_rollback(env):
         ctl().install()
 
 
+def test_release_switch_restarts_running_instances(env):
+    # Instances run current/onvif_shim.py: switching the release must restart them,
+    # even though the unit files are unchanged.
+    paths, host, ctl, lines = env
+    write_config(paths, enabled=("parking_east", "parking_north"))
+    ctl().install("0.1.0-gtest")
+    release.stage(paths.releases, "0.1.1-gtest")
+    restarts = lambda: [c for c in host.calls if c[:2] == ["systemctl", "restart"]]  # noqa: E731
+    host.calls.clear()
+    assert ctl(dry_run=True).install("0.1.1-gtest") == 0
+    assert restarts() == []
+    assert any("restart onvif-shim@parking_east.service" in line for line in lines)
+    host.calls.clear()
+    assert ctl().install("0.1.1-gtest") == 0
+    assert sorted(c[2] for c in restarts()) == [
+        units.instance("parking_east"),
+        units.instance("parking_north"),
+    ]
+    assert redirects(host) == ["parking_east", "parking_north"]
+    host.calls.clear()
+    assert ctl().install() == 0  # same release again: nothing to restart
+    assert restarts() == []
+
+
 def test_ownership_check_rejects_writable_release(env):
     paths, host, ctl, _ = env
     checked = Ctl(paths, runner=host, probe=host, out=lambda _: None, check_ownership=True)
