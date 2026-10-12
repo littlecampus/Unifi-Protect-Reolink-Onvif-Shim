@@ -24,9 +24,11 @@ a branch, `HEAD` for unpushed local work they ask to deploy.
    - `up-to-date`: report it; an update stops here.
    - `behind`: the listed commits are the update; put them in the approval request.
    - `diverged`, `unknown-commit` or a `-dirty` warning: the console runs a build that is
-     not on REF. Report the listed commits and ask whether to replace it.
+     not on REF. Report the listed commits and ask with `AskUserQuestion` whether to
+     replace it.
    - A ref that is "not a multi-camera release" (e.g. a `main` that still holds the v1
-     shim): ask which branch to ship.
+     shim): ask with `AskUserQuestion` which branch to ship, candidate branches as
+     options.
 3. **Build.** CI passed for REF's commit: every run in
    `gh run list --commit $(git rev-parse REF) --json name,conclusion` is `success`. For
    `HEAD` with no CI run, the working tree is clean and the CI checks (CLAUDE.md §
@@ -34,9 +36,9 @@ a branch, `HEAD` for unpushed local work they ask to deploy.
    (builds the commit from git; the checkout is untouched) and record the printed
    version, tarball and sha256. The tarball is deterministic: reuse an existing
    `dist/onvif-shim-VERSION.tar.gz`.
-4. **Upload** (a change). On production, ask approval for "upload VERSION to TARGET (writes
-   `/root/` and `/data/onvif-shim/releases/VERSION` only)". Then
-   `nvr.py upload TARGET dist/onvif-shim-VERSION.tar.gz`. Done when it prints matching
+4. **Upload** (a change). On production, ask with `AskUserQuestion` to approve "upload
+   VERSION to TARGET (writes `/root/` and `/data/onvif-shim/releases/VERSION` only)".
+   Then `nvr.py upload TARGET dist/onvif-shim-VERSION.tar.gz`. Done when it prints matching
    local and remote sha256 and `extracted`.
 5. **Back up the firewall** before the first install on a console, inside the install
    approval:

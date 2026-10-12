@@ -47,4 +47,4 @@ Read-only on any target. It diagnoses and proposes fixes; applying a fix belongs
 - `requests.redirected` counts connections that arrived through the firewall redirect;
   it proves traversal.
 - `detection_verified` is always false: motion works only when a motion event appears
-  on the Protect timeline, which the user confirms.
+  on the Protect timeline, which only the user can confirm (ask with `AskUserQuestion`).

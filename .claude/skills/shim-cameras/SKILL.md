@@ -46,8 +46,8 @@ Disabling a camera is a rollback: `shim-rollback`. Installing the shim itself:
 There is no `shimctl` command to edit a camera in place. Re-create it with the same id and
 port: `remove ID`, then
 `add CAMERA_IP --id ID --listen-port PORT [--onvif-port P] [--mode M] --wsa To,Action,MessageID`
-(add `--no-must-understand` as the next step if the camera still rejects). Show both
-commands for approval together. `add` cannot dry-run while the old entry exists; in
-between, the camera is on Protect's direct path, which is safe. Carry over every
+(add `--no-must-understand` as the next step if the camera still rejects). Ask approval
+for both commands in one `AskUserQuestion`. `add` cannot dry-run while the old entry
+exists; in between, the camera is on Protect's direct path, which is safe. Carry over every
 non-default option from the old entry, as read from
 `nvr.py run TARGET -- cat /data/onvif-shim/cameras.json`.

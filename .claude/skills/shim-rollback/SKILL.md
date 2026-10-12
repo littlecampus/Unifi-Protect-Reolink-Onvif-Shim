@@ -36,8 +36,8 @@ its behavior before the shim (events fail again; video is unaffected).
    - Uninstall: `snapshot` shows no unit files and `no shim or DNAT nat rules`.
 4. **Prove Protect is direct.** Within about 5 minutes, `onvif.events.log` shows Protect
    working against the camera again. For a camera that had the circuit-breaker
-   pattern, its return is the expected proof, not a new failure. Ask the user to
-   confirm recordings still advance in Protect.
+   pattern, its return is the expected proof, not a new failure. Ask the user with
+   `AskUserQuestion` to confirm recordings still advance in Protect.
 5. **Report** the scope, the evidence from steps 3–4, and the undo command.
 
 `uninstall.sh` keeps `/data/onvif-shim` (inventory, releases, backups) so a reinstall

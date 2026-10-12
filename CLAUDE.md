@@ -10,9 +10,10 @@ or run on a console.
   `.claude/nvr-targets.example.json`). Each has an `ssh` destination (key auth as root)
   and `production: true|false`.
 - Every console command names its target. If the user did not name one and more than
-  one is configured, ask which.
-- For a console that is not configured, ask the user for its SSH destination and whether
-  it is production (their answer only; it decides whether changes need approval), then
+  one is configured, ask which with `AskUserQuestion`, one option per target.
+- For a console that is not configured, ask the user for its SSH destination, then ask
+  with `AskUserQuestion` whether it is production (their answer only; it decides whether
+  changes need approval), then
   `nvr.py targets add NAME --ssh DEST --production true|false [--description TEXT]`.
   It tests SSH as root on a UniFi console before saving. Changing a target is
   `targets remove NAME` then `add`, with the user's answers again.
@@ -30,8 +31,9 @@ writing backups. For each change:
 
 1. Dry-run it (`shimctl … --dry-run`, `install.sh --dry-run`, `uninstall.sh --dry-run`).
 2. Show the user the dry-run output and the target name.
-3. Production target: wait for the user's explicit approval of that plan on that target;
-   approval covers that plan only. Test target: continue.
+3. Production target: ask with `AskUserQuestion` to approve that plan on that target
+   (options: apply it, or stop) and wait for the answer; approval covers that plan only.
+   Test target: continue.
 4. Apply exactly the plan that was dry-run.
 5. Verify with `shimctl status` (plus the skill's own checks) and report what you observed.
 
