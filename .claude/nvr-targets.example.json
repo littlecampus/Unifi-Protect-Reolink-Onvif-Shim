@@ -1,0 +1,14 @@
+{
+  "targets": {
+    "tlc": {
+      "ssh": "tlc-unvr",
+      "production": true,
+      "description": "TLC UNVR Gen 2 Pro (pilot: Parking East)"
+    },
+    "lab": {
+      "ssh": "root@192.168.1.1",
+      "production": false,
+      "description": "test console"
+    }
+  }
+}

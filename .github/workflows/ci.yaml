@@ -1,0 +1,46 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.13 is the UNVR's interpreter (Debian 13).
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.9.27'
+          python-version: ${{ matrix.python }}
+      - run: uv sync --frozen
+      - run: uv run pytest -q -W error
+      - run: uv run ruff check shimlib tests tools onvif_shim.py shimctl.py
+      - run: uv run ruff format --check shimlib tests tools onvif_shim.py shimctl.py
+      - run: sh -n install.sh && sh -n uninstall.sh
+      - run: |
+          python3 -I shimctl.py validate --config cameras.example.json
+          python3 -I shimctl.py validate --config examples/parking-east.json
+  kernel:
+    # Privileged throwaway containers on the CI VM only; never a real console.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: tests/kernel/run.sh
+      - run: >-
+          docker run --rm --privileged -e PYTHONDONTWRITEBYTECODE=1
+          -v "$PWD:/src:ro" onvif-shim-kernel-test
+          python3 /src/tests/kernel/scale_test.py
+  systemd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.9.27'
+          python-version: '3.13'
+      - run: uv run python tests/systemd/systemd_test.py
